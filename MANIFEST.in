@@ -5,3 +5,4 @@ exclude .pre-commit-config.yaml
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
 recursive-exclude tests *
+recursive-exclude notebooks *

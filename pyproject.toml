@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11.0"
 dynamic = ["version"]
 
-dependencies = []
+dependencies = ["movement[napari]>=0.6.1", "jupyter"]
 
 license = {text = "BSD-3-Clause"}
 

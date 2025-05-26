@@ -79,7 +79,15 @@ def parse_data_into_df(data_dir: Path) -> pd.DataFrame:
         list_of_dicts.append(pose_dict)
 
     # Convert the list of dictionaries to a DataFrame
+    # Create DataFrame first
     df = pd.DataFrame(list_of_dicts)
+
+    # Convert columns to correct types
+    df = df.astype(
+        {"kage": str, "date": str, "time": str, "video_exists": bool}
+    )
+
+    # Path columns are already Path objects, no need to convert
     assert df["video_file_path"].is_unique, "Video file paths are not unique."
 
     # Check how many pose files lack corresponding videos

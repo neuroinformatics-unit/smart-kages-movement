@@ -20,7 +20,9 @@ Each Smart-Kage folder contains:
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
+import sleap_io as sio
 
 
 def parse_data_into_df(data_dir: Path) -> pd.DataFrame:
@@ -151,6 +153,38 @@ def load_corrected_timestamps(data_dir):
         else:
             print(f"Warning: could not find {TS_FILENAME} in {kage_date_dir}")
     return timestamps
+
+
+def load_background_frame(
+    video_path: Path, i: int = 0, n_average: int = 100
+) -> np.ndarray:
+    """
+    Load a specific frame or an average of several frames from a video.
+
+    Parameters
+    ----------
+    video_path : Path
+        The path to the video file from which to load the frame.
+    i : int, optional
+        The index of the frame to load. Default is 0 (meaning the first frame).
+    n_average : int, optional
+        The number of frames to average. The frames being averaged span the
+        period from the ``i``-th frame to the ``i + n_average``-th frame.
+        Default is 100. Set to 1 to load a single frame without averaging.
+
+    Returns
+    -------
+    np.ndarray
+        The loaded frame as a numpy array.
+    """
+    video = sio.load_video(video_path)
+
+    # Ensure n_average does not exceed the number of frames
+    n_frames = video.shape[0] - i
+    n_average = min(n_average, n_frames)
+    # Average the frames from i to i + n_average
+    background_image = video[i : i + n_average].mean(axis=0).astype(np.uint8)
+    return background_image
 
 
 def _get_video_path(kage_dir, datetime: pd.Timestamp) -> Path:

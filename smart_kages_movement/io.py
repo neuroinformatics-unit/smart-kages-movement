@@ -11,6 +11,10 @@ Each Smart-Kage folder contains:
 - corresponding DeepLabCut (DLC) predictions are stored in
   `analysis/dlc_output/YYYY/MM/DD/`. Each 1-hour `.h5` file therein is
   prefixed with `kageN_YYYYMMDD_HHMMSS`
+- The `analysis/dlc_output/YYYY/MM/DD/` directory also contains a file
+  named `corrected_timestamps.pkl`, storing a dictionary mapping
+  each pose `.h5` file to an array of corrected timestamps, in units
+  of seconds since the start of the hour.
 """
 
 from pathlib import Path
@@ -111,7 +115,8 @@ def load_corrected_timestamps(data_dir):
 
     The timestamps are stored per day, in a file named
     "corrected_timestamps.pkl". This file contains a dictionary mapping
-    each pose .h5 file to an array of corrected timestamps.
+    each pose .h5 file to an array of corrected timestamps
+    in seconds since the start of the hour.
 
     Parameters
     ----------

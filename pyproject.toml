@@ -111,5 +111,5 @@ commands =
 
 
 [tool.codespell]
-skip = '.git'
+skip = '.git,*.ipynb'
 check-hidden = true

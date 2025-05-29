@@ -80,7 +80,6 @@ def parse_data_into_df(data_dir: Path) -> pd.DataFrame:
         video_path = _get_video_path(
             data_dir / pose_dict["kage"], pose_dict["start_datetime"]
         )
-        pose_dict["video_exists"] = video_path.exists()
         pose_dict["video_file_path"] = video_path
 
         list_of_dicts.append(pose_dict)
@@ -95,20 +94,110 @@ def parse_data_into_df(data_dir: Path) -> pd.DataFrame:
     # Check that all video file paths are unique
     assert df["video_file_path"].is_unique, "Video file paths are not unique."
 
-    # Check how many pose files lack corresponding videos
-    missing_videos = df["video_exists"].value_counts().get(False, 0)
-    total_pose_files = len(df)
-    if missing_videos > 0:
-        print(
-            f"Warning: {missing_videos}/{total_pose_files} "
-            "pose files are missing corresponding videos."
-        )
-
     # Sort the DataFrame by kage, date, and hour
     df = df.sort_values(by=["kage", "date", "hour"])
     # Set multi-index for easier access
     df.set_index(["kage", "date", "hour"], inplace=True)
     return df
+
+
+def _get_video_path(kage_dir, datetime: pd.Timestamp) -> Path:
+    """Get the video file path given a kage directory and a datetime."""
+    kage = kage_dir.name
+    year = datetime.strftime("%Y")
+    month = datetime.strftime("%m")
+    day = datetime.strftime("%d")
+    date = datetime.strftime("%Y%m%d")
+    time = datetime.strftime("%H%M%S")
+    video_dir = kage_dir / "videos" / year / month / day
+    assert video_dir.exists(), f"Directory {video_dir} does not exist."
+    video_path = video_dir / f"{kage}_{date}_{time}.mp4"
+    assert video_path.exists(), f"Video file {video_path} does not exist."
+
+    return video_path
+
+
+def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Derive correct start datetimes for each video.
+
+    The timestamps are stored per day, in a file named "adjustments.txt".
+    This file contains a mapping between video filenames and their
+    corrected start datetimes in the format `video_filename:H,M,S`.
+    We will read this file and adjust the start datetimes
+    in the input dataframe accordingly.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        A dataframe summarising all pose files
+        and their corresponding video files.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The input dataframe with the 'start_datetime' column updated
+        to reflect the correct start times of each video.
+
+    """
+    kage_date_pairs = df.index.droplevel("hour").unique()
+    for kage, date in kage_date_pairs:
+        sub_df = df.loc[kage, date]
+        video_dir = sub_df["video_file_path"].iloc[0].parent
+        adjustments_file = video_dir / "adjustments.txt"
+
+        if adjustments_file.exists():
+            adjustments = _load_adjustments_file(adjustments_file)
+        else:
+            raise FileNotFoundError(
+                f"Adjustments file {adjustments_file} does not exist."
+            )
+
+        midnight = pd.Timestamp(f"{date} 00:00:00")
+
+        for hour in sub_df.index:
+            video_filename = sub_df.loc[hour, "video_file_path"].name
+            if video_filename in adjustments:
+                hours, minutes, seconds = adjustments[video_filename]
+                # Calculate the adjusted start datetime
+                start_datetime = midnight + pd.Timedelta(
+                    hours=hours, minutes=minutes, seconds=seconds
+                )
+                df.loc[(kage, date, hour), "start_datetime"] = start_datetime
+            else:
+                raise KeyError(
+                    f"Video {video_filename} not found in adjustments file."
+                )
+
+    return df
+
+
+def _load_adjustments_file(
+    adjustments_file: Path,
+) -> dict[str, tuple[int, int, int]]:
+    """
+    Load adjustments from a file into a dictionary.
+
+    Parameters
+    ----------
+    adjustments_file : Path
+        Path to the adjustments file.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping video filenames to their tim adjustments
+        in the format (hours, minutes, seconds).
+    """
+    adjustments = {}
+    with adjustments_file.open("r") as f:
+        for line in f:
+            video_filename, time_str = line.strip().split(":")
+            # if video_filename in a path, extract the filename only
+            video_filename = Path(video_filename).name
+            hours, minutes, seconds = map(int, time_str.split(","))
+            adjustments[video_filename] = (hours, minutes, seconds)
+    return adjustments
 
 
 def load_corrected_timestamps(data_dir):
@@ -185,19 +274,3 @@ def load_background_frame(
     # Average the frames from i to i + n_average
     background_image = video[i : i + n_average].mean(axis=0).astype(np.uint8)
     return background_image
-
-
-def _get_video_path(kage_dir, datetime: pd.Timestamp) -> Path:
-    """Get the video file path given a kage directory and a datetime."""
-    kage = kage_dir.name
-    year = datetime.strftime("%Y")
-    month = datetime.strftime("%m")
-    day = datetime.strftime("%d")
-    date = datetime.strftime("%Y%m%d")
-    time = datetime.strftime("%H%M%S")
-    video_dir = kage_dir / "videos" / year / month / day
-    assert video_dir.exists(), f"Directory {video_dir} does not exist."
-
-    return (
-        kage_dir / "videos" / year / month / day / f"{kage}_{date}_{time}.mp4"
-    )

@@ -1,6 +1,6 @@
 # smart-kages-movement
 
-Using the [movement](https://movement.neuroinformatics.com) package to analysing mouse home cage monitoring data acquired in [Smart-Kages](https://cambridgephenotyping.com/products) and tracked with [DeepLabCut](https://www.deeplabcut.org/).
+Using the [movement](https://movement.neuroinformatics.com) package to analyse mouse home cage monitoring data acquired in [Smart-Kages](https://cambridgephenotyping.com/products) and tracked with [DeepLabCut](https://www.deeplabcut.org/).
 
 
 

@@ -127,6 +127,14 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
     We will read this file and adjust the start datetimes
     in the input dataframe accordingly.
 
+    We have an additional source of corrected timestamps in the form of
+    a file named "corrected_timestamps.pkl" in the same directory as the
+    pose files. This file contains a dictionary mapping each pose `.h5`
+    file to an array of corrected timestamps, in units of seconds since
+    the start of the hour. We will use this to derive an alternative
+    start datetime and an end datetime for each pose file (based on
+    the first and last timestamps in the array, respectively).
+
     Parameters
     ----------
     df : pd.DataFrame
@@ -144,7 +152,9 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
     for kage, date in kage_date_pairs:
         sub_df = df.loc[kage, date]
         video_dir = sub_df["video_file_path"].iloc[0].parent
+        dlc_dir = sub_df["pose_file_path"].iloc[0].parent
         adjustments_file = video_dir / "adjustments.txt"
+        timestamps_file = dlc_dir / "corrected_timestamps.pkl"
 
         if adjustments_file.exists():
             adjustments = _load_adjustments_file(adjustments_file)
@@ -153,9 +163,17 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
                 f"Adjustments file {adjustments_file} does not exist."
             )
 
+        if timestamps_file.exists():
+            timestamps_pkl = _load_corrected_timestamps(timestamps_file)
+        else:
+            raise FileNotFoundError(
+                f"Timestamps file {timestamps_file} does not exist."
+            )
+
         midnight = pd.Timestamp(f"{date} 00:00:00")
 
         for hour in sub_df.index:
+            # Extract start_datetime based on adjustments.txt
             video_filename = sub_df.loc[hour, "video_file_path"].name
             if video_filename in adjustments:
                 hours, minutes, seconds = adjustments[video_filename]
@@ -167,6 +185,21 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
             else:
                 raise KeyError(
                     f"Video {video_filename} not found in adjustments file."
+                )
+
+            # Extract start and end datetimes based on corrected_timestamps.pkl
+            pose_filename = sub_df.loc[hour, "pose_file_path"].name
+            if pose_filename in timestamps_pkl:
+                seconds_since_hour = timestamps_pkl[pose_filename]
+                # Add an alternative start datetime based on first timestamp
+                df.loc[(kage, date, hour), "start_datetime_pkl"] = (
+                    midnight
+                    + pd.Timedelta(hours=hours, seconds=seconds_since_hour[0])
+                )
+                # Extract end datetime based on last timestamp
+                df.loc[(kage, date, hour), "end_datetime_pkl"] = (
+                    midnight
+                    + pd.Timedelta(hours=hours, seconds=seconds_since_hour[-1])
                 )
 
     return df
@@ -186,7 +219,7 @@ def _load_adjustments_file(
     Returns
     -------
     dict
-        A dictionary mapping video filenames to their tim adjustments
+        A dictionary mapping video filenames to their time adjustments
         in the format (hours, minutes, seconds).
     """
     adjustments = {}
@@ -200,47 +233,30 @@ def _load_adjustments_file(
     return adjustments
 
 
-def load_corrected_timestamps(data_dir):
+def _load_corrected_timestamps(file_path: Path) -> dict[Path, np.ndarray]:
     """
-    Load corrected timestamps from all kage directories.
+    Load timestamps from a single "corrected_timestamps.pkl" file.
 
-    The timestamps are stored per day, in a file named
-    "corrected_timestamps.pkl". This file contains a dictionary mapping
+    This file contains a dictionary mapping
     each pose .h5 file to an array of corrected timestamps
     in seconds since the start of the hour.
 
     Parameters
     ----------
-    data_dir : Path
-        The path to the directory containing kage data.
-        It must contain subdirectories named like "kageN" where N is
-        an integer indicating the kage number.
+    file_path : Path
+        The path to the "corrected_timestamps.pkl" file.
 
     Returns
     -------
     dict
-        A dictionary with corrected timestamps for each pose file.
-        The keys are the pose file paths, and the values are arrays of
-        corrected timestamps.
+        A dictionary pose file paths to arrays of
+        corrected timestamps for the corresponding pose file.
 
     """
-    TS_FILENAME = "corrected_timestamps.pkl"
-    timestamps = {}
-
-    kage_date_dirs = sorted(data_dir.glob("kage*/analysis/dlc_output/*/*/*"))
-    # exclude dirs whose last component is not a day of the form DD
-    kage_date_dirs = [
-        d for d in kage_date_dirs if d.name.isdigit() and len(d.name) == 2
-    ]
-
-    for kage_date_dir in kage_date_dirs:
-        ts_file = kage_date_dir / TS_FILENAME
-        if ts_file.exists():
-            with ts_file.open("rb") as f:
-                ts_data = pd.read_pickle(f)
-                timestamps.update(ts_data)
-        else:
-            print(f"Warning: could not find {TS_FILENAME} in {kage_date_dir}")
+    with file_path.open("rb") as f:
+        timestamps = pd.read_pickle(f)
+    # In case the dict key is a path, take only the name of the file
+    timestamps = {Path(k).name: v for k, v in timestamps.items()}
     return timestamps
 
 

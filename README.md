@@ -27,6 +27,13 @@ To contribute, make sure to include the `dev` dependencies as well:
 pip install -e '.[dev]'
 ```
 
+To update the package following changes to the `main` branch on GitHub, run:
+
+```bash
+git pull origin main
+pip install -U -e .
+```
+
 ## Usage
 
 The main way to use the code is by working through the Jupyter notebooks in the `notebooks` directory, in the order they are listed.

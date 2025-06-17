@@ -1,29 +1,38 @@
 """Utilities for working with datetime data"""
 
+import json
+import shutil
+import subprocess
+import warnings
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
-def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
+def extract_datetimes(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[tuple[str, str, str], np.ndarray]]:
     """
-    Derive correct start datetimes for each video.
+    Extract the start datetimes and the frame timestamps for each video.
 
     The timestamps are stored per day, in a file named "adjustments.txt".
     This file contains a mapping between video filenames and their
-    corrected start datetimes in the format `video_filename:H,M,S`.
+    corrected start datetimes in the format "video_filename:H,M,S".
     We will read this file and adjust the start datetimes
-    in the input dataframe accordingly.
+    in the input dataframe accordingly. Invalid H,M,S values
+    (e.g. negative numbers ) will raise a
+    warning and be marked as NaN in the output.
 
-    We have an additional source of corrected timestamps in the form of
-    a file named "corrected_timestamps.pkl" in the same directory as the
-    pose files. This file contains a dictionary mapping each pose `.h5`
+    Additionally, we also have timestamps for each frame in the form of
+    a file named "corrected_timestamps.pkl", stored in the same directory as
+    the pose files. This file contains a dictionary mapping each pose .h5
     file to an array of corrected timestamps, in units of seconds since
-    the start of the hour. We will use this to derive an alternative
-    start datetime and an end datetime for each pose file (based on
-    the first and last timestamps in the array, respectively).
+    the start of the hour. The first element should be derived from the
+    offset in the "adjustments.txt" file, and the rest should be derived
+    by adding the frame timestamps (extracted from the .mp4 file) to this
+    offset. If the first timestamp does not match the adjustment,
+    a warning will be raised and the start_datetime will be set to NaT.
 
     Parameters
     ----------
@@ -34,11 +43,15 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     df : pd.DataFrame
-        The input dataframe with the 'start_datetime' column updated
-        to reflect the correct start times of each video.
-
+        The input dataframe with the 'start_datetime' adjusted or set to NaT.
+    frame_timestamps: dict[tuple[str, str, str], np.ndarray]
+        A dictionary mapping (kage, date, hour) tuples to arrays of
+        timestamps in seconds elapsed since the start of the video
+        (difference between timestamp of current frame and first frame).
     """
     kage_date_pairs = df.index.droplevel("hour").unique()
+    frame_timestamps = {}
+
     for kage, date in kage_date_pairs:
         sub_df = df.loc[kage, date]
         video_dir = sub_df["video_file_path"].iloc[0].parent
@@ -54,7 +67,7 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
             )
 
         if timestamps_file.exists():
-            timestamps_pkl = _load_corrected_timestamps(timestamps_file)
+            timestamps = _load_corrected_timestamps(timestamps_file)
         else:
             raise FileNotFoundError(
                 f"Timestamps file {timestamps_file} does not exist."
@@ -65,107 +78,42 @@ def adjust_start_datetimes(df: pd.DataFrame) -> pd.DataFrame:
         for hour in sub_df.index:
             # Extract start_datetime based on adjustments.txt
             video_filename = sub_df.loc[hour, "video_file_path"].name
-            if video_filename in adjustments:
-                hours, minutes, seconds = adjustments[video_filename]
-                # Convert to seconds (to also handle negative values)
-                seconds_since_midnight = (
-                    3600 * hours + 60 * minutes + seconds
-                )
-                # Calculate the adjusted start datetime
-                df.loc[(kage, date, hour), "start_datetime"] = (
-                    midnight
-                    + pd.Timedelta(seconds=seconds_since_midnight)
-                )
-            else:
-                raise KeyError(
-                    f"Video {video_filename} not found in adjustments file."
-                )
+            adjustment = adjustments.get(video_filename, np.nan)
+            # adjustment is expressed in seconds since midnight
+            df.loc[(kage, date, hour), "start_datetime"] = (
+                midnight + pd.to_timedelta(adjustment, unit="s")
+            )
 
-            # Extract start and end datetimes based on corrected_timestamps.pkl
+            # Extract timestamps from corrected_timestamps.pkl
             pose_filename = sub_df.loc[hour, "pose_file_path"].name
-            if pose_filename in timestamps_pkl:
-                seconds_since_hour = timestamps_pkl[pose_filename]
-                # This can also be negative, which means before the hour
-                seconds_since_midnight = np.array(seconds_since_hour) + (
-                    3600 * int(hour)  # Convert hour to seconds
-                )
-                # Add an alternative start datetime based on first timestamp
-                df.loc[(kage, date, hour), "start_datetime_pkl"] = (
-                    midnight
-                    + pd.Timedelta(seconds=seconds_since_midnight[0])
-                )
-                # Extract end datetime based on last timestamp
-                df.loc[(kage, date, hour), "end_datetime_pkl"] = (
-                    midnight
-                    + pd.Timedelta(seconds=seconds_since_midnight[-1])
+            if pose_filename in timestamps:
+                seconds_since_hour = timestamps[pose_filename]
+                first_timestamp = 3600 * int(hour) + seconds_since_hour[0]
+                # If the first timestamp is not equal to the adjustment,
+                # raise a warning and re-calculate the timestamps
+                if first_timestamp != adjustment:  # seconds since midnight
+                    warnings.warn(
+                        f"First timestamp for {pose_filename} does not match "
+                        f"the adjustment for {video_filename}. Setting "
+                        f"start_datetime to NaT.",
+                        stacklevel=2,
+                    )
+                    # Set the start_datetime to NaT to flag it as problematic
+                    df.loc[(kage, date, hour), "start_datetime"] = pd.NaT
+
+                # Express the timestamps as seconds since start of the video
+                frame_timestamps[(kage, date, hour)] = (
+                    seconds_since_hour - seconds_since_hour[0]
                 )
             else:
                 raise KeyError(
                     f"Pose file {pose_filename} not found in timestamps file."
                 )
 
-    return df
+    return df, frame_timestamps
 
 
-def find_datetime_diffs(df, threshold=0.5, kind="start", plot_hist=True):
-    """
-    Find rows where the difference between the two datetime sources
-    exceeds a certain threshold (in seconds).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Must contain columns "{kind}_datetime" and "{kind}_datetime_pkl".
-    threshold : float, optional
-        Threshold in seconds for the difference to be considered significant.
-        Default is 0.5 seconds.
-    kind : {"start", "end"}
-        Which datetime to compare.
-    plot_hist : bool, optional
-        If True, plot a histogram of the differences.
-        The y-axis will be on a log scale to help visualise
-        any outliers.
-
-    Returns
-    -------
-    pd.DataFrame
-        Subset of df with columns
-        [<kind>_datetime, <kind>_datetime_pkl, <kind>_diff_seconds].
-    """
-    if kind not in {"start", "end"}:
-        raise ValueError("kind must be 'start' or 'end'")
-    dt_col = f"{kind}_datetime"
-    pkl_col = f"{kind}_datetime_pkl"
-    diff_col = f"{kind}_diff_seconds"
-
-    # compute diff (pkl - original) in seconds
-    df[diff_col] = (df[pkl_col] - df[dt_col]).dt.total_seconds()
-
-    # filter where abs(diff) > threshold
-    mask = df[diff_col].abs() > threshold
-    result = df.loc[mask, [dt_col, pkl_col, diff_col]]
-
-    print(
-        f"Found {len(result)} segments with "
-        f"{kind}-datetime differences > {threshold:.3f} sec."
-    )
-
-    if plot_hist:
-        df.plot.hist(
-            y=f"{kind}_diff_seconds",
-            bins=50,
-            title=f"Histogram of {kind} datetime differences (seconds)",
-            xlabel="corrected_timestamps.pkl - adjustments.txt (seconds)",
-            ylabel="N segments",
-            grid=True,
-        )
-        plt.yscale("log")
-    return result
-
-
-def find_segment_overlaps(
-        df: pd.DataFrame, use_pkl: bool = False
-) -> pd.DataFrame | None:
+def find_segment_overlaps(df: pd.DataFrame) -> pd.DataFrame | None:
     """
     Find 1-hour segments that overlap in time.
 
@@ -176,10 +124,6 @@ def find_segment_overlaps(
         and their corresponding video files.
         We assume a multi-index with levels 'kage', 'date', and 'hour',
         and the existence of 'start_datetime' and 'end_datetime' columns.
-    use_pkl : bool, optional
-        If True, use the 'start_datetime_pkl' and 'end_datetime_pkl'
-        columns instead of 'start_datetime' and 'end_datetime'.
-        Default is False.
 
     Returns
     -------
@@ -190,8 +134,8 @@ def find_segment_overlaps(
 
     """
 
-    start = "start_datetime_pkl" if use_pkl else "start_datetime"
-    end = "end_datetime_pkl" if use_pkl else "end_datetime"
+    start = "start_datetime"
+    end = "end_datetime"
 
     # Build an IntervalIndex per group
     results = []  # will collect tuples (iloc_i, iloc_j)
@@ -212,9 +156,10 @@ def find_segment_overlaps(
                         {
                             "segment_A": iloc_i,
                             "segment_B": iloc_j,
-                            # grab end of A, start of B from the group
+                            "start_A": group.at[iloc_i, start],
                             "end_A": group.at[iloc_i, end],
                             "start_B": group.at[iloc_j, start],
+                            "end_B": group.at[iloc_j, end],
                         }
                     )
 
@@ -228,20 +173,78 @@ def find_segment_overlaps(
             columns=[
                 "segment_A",
                 "segment_B",
+                "start_A",
                 "end_A",
                 "start_B",
+                "end_B",
             ],
         )
         overlaps["overlap_duration_seconds"] = (
-            (overlaps["end_A"] - overlaps["start_B"])
-            .dt.total_seconds()
-        )
+            overlaps["end_A"] - overlaps["start_B"]
+        ).dt.total_seconds()
         return overlaps
+
+
+def extract_frame_timestamps(video_path: Path) -> np.ndarray:
+    """Extract timestamps of video frames using ffprobe.
+
+    Parameters
+    ----------
+    video_path : Path
+        Path to the video file.
+
+    Returns
+    -------
+    np.ndarray
+        An array of timestamps in seconds for each frame in the video.
+        The timestamps are expressed as seconds since the start of the video.
+
+    Notes
+    -----
+    This function relies on the "best_effort_timestamp_time" field
+    from ffprobe's output.
+    """
+
+    if shutil.which("ffprobe") is None:
+        raise OSError(
+            "ffprobe not found. Please install FFmpeg (includes ffprobe)."
+        )
+
+    cmd = [
+        "ffprobe",
+        "-select_streams",
+        "v:0",
+        "-show_frames",
+        "-show_entries",
+        "frame=best_effort_timestamp_time",
+        "-of",
+        "json",
+        video_path.as_posix(),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(  # noqa: B904
+            f"ffprobe failed to extract timestamps from '{video_path}'.\n"
+            f"Error message:\n{e.stderr}"
+        )
+
+    data = json.loads(result.stdout)
+
+    timestamps = [
+        float(frame["best_effort_timestamp_time"])
+        for frame in data.get("frames", [])
+        if "best_effort_timestamp_time" in frame
+    ]
+    return np.array(timestamps)
 
 
 def _load_adjustments_file(
     adjustments_file: Path,
-) -> dict[str, tuple[int, int, int]]:
+) -> dict[str, float]:
     """
     Load adjustments from a file into a dictionary.
 
@@ -254,7 +257,8 @@ def _load_adjustments_file(
     -------
     dict
         A dictionary mapping video filenames to their time adjustments
-        in the format (hours, minutes, seconds).
+        in seconds since midnight. If an adjustment is invalid,
+        it will be set to NaN and a warning will be emitted.
     """
     adjustments = {}
     with adjustments_file.open("r") as f:
@@ -263,11 +267,36 @@ def _load_adjustments_file(
             # if video_filename in a path, extract the filename only
             video_filename = Path(video_filename).name
             hours, minutes, seconds = map(int, time_str.split(","))
-            adjustments[video_filename] = (hours, minutes, seconds)
+            adjustment = (hours, minutes, seconds)
+            if not _adjustment_is_valid(adjustment):
+                warnings.warn(
+                    f"Invalid adjustment {adjustment} for video "
+                    f"{video_filename}. It should be in the format H,M,S "
+                    "where H is 0-23, M is 0-59, and S is 0-59. "
+                    "Setting to NaN.",
+                    stacklevel=2,
+                )
+                adjustments[video_filename] = np.nan
+            else:
+                seconds_since_midnight = 3600 * hours + 60 * minutes + seconds
+                adjustments[video_filename] = seconds_since_midnight
     return adjustments
 
 
-def _load_corrected_timestamps(file_path: Path) -> dict[Path, np.ndarray]:
+def _adjustment_is_valid(adjustment: tuple[int, int, int]) -> bool:
+    """Returns True if the adjustment is valid.
+
+    Verifies that hours, minutes, and seconds are within valid ranges.
+    """
+    in_valid_range = (
+        0 <= adjustment[0] < 24
+        and 0 <= adjustment[1] < 60
+        and 0 <= adjustment[2] < 60
+    )
+    return in_valid_range
+
+
+def _load_corrected_timestamps(file_path: Path) -> dict[str, np.ndarray]:
     """
     Load timestamps from a single "corrected_timestamps.pkl" file.
 
@@ -283,12 +312,11 @@ def _load_corrected_timestamps(file_path: Path) -> dict[Path, np.ndarray]:
     Returns
     -------
     dict
-        A dictionary pose file paths to arrays of
-        corrected timestamps for the corresponding pose file.
+        A dictionary mapping pose file names to arrays of corrected timestamps.
 
     """
     with file_path.open("rb") as f:
         timestamps = pd.read_pickle(f)
     # In case the dict key is a path, take only the name of the file
-    timestamps = {Path(k).name: v for k, v in timestamps.items()}
+    timestamps = {Path(k).name: np.array(v) for k, v in timestamps.items()}
     return timestamps

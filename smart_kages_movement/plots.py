@@ -3,6 +3,23 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import xarray as xr
+from sleap_io import load_video
+
+
+def show_first_frame_corner(video_path: Path, crop_height=20, crop_width=300):
+    """Display the first frame of the video.
+
+    Only the top-left corner of the frame is shown, cropped to
+    `crop_height` x `crop_width` pixels.
+    """
+    video = load_video(video_path)
+    try:
+        frame = video[0]
+        plt.imshow(frame[:crop_height, :crop_width])
+        plt.axis("off")
+        plt.show()
+    finally:
+        video.close()
 
 
 def plot_confidence_hist_by_keypoint(

@@ -52,11 +52,11 @@ We expect all data to be stored under a single folder, hereafter referred to as 
 
 Each kage folder should contain at least the `videos/` and `analysis/dlc_output/` subfolders, which are themselves hierarchically subdivided by date, i.e. `YYYY/MM/DD/`. Each day's folder contains videos and DeepLabCut predictions saved as `.h5` files, split into 1-hour segments.
 
-The `videos/YYYY/MM/DD/` subfolder is also expected to contain an `adjustments.txt` file, which contains time adjustments for each 1-hour segment. This file is used to calculate the start datetime for each segment. Segment
-end datetimes are estimated by counting the number of video frames and assuming a constant frame rate of 2 fps.
+The `videos/YYYY/MM/DD/` subfolder is also expected to contain an `adjustments.txt` file, which contains time adjustments for each 1-hour segment. This file is used to calculate the start datetime for each segment.
+
+The `dlc_output/YYYY/MM/DD/` subfolder is also expected to contain a `corrected_timestamps.pkl` file, i.e. 1 per day. This file contains a dictionary mapping each pose filename to an array of corrected timestamps, expressed in seconds since the start of the hour. The first element should match the offset in the `adjustments.txt` file, and the rest should be derived by adding the frame timestamps (extracted from the .mp4 file) to this offset.
 
 A `DATA_DIR/movement_analysis/` subfolder is created to store the outputs, but the path can be customised in the notebooks.
-
 
 ## License
 This code is licensed under the [3-Clause BSD License](https://opensource.org/license/bsd-3-clause), see the [LICENSE](LICENSE) file for details.

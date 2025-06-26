@@ -186,13 +186,23 @@ def find_segment_overlaps(df: pd.DataFrame) -> pd.DataFrame | None:
         return overlaps
 
 
-def extract_frame_timestamps(video_path: Path) -> np.ndarray:
+def extract_frame_timestamps(
+    video_path: Path, expected_n_frames: int | None = None,
+) -> np.ndarray:
     """Extract timestamps of video frames using ffprobe.
+
+    If there are frames without timestamps, they will be filled with
+    linear interpolation.
 
     Parameters
     ----------
     video_path : Path
         Path to the video file.
+    expected_n_frames : int | None, optional
+        If provided, this is the expected number of frames in the video, which
+        we may know from another source (e.g. sleap_io). If None (default),
+        the function will count the total number of frames in the video using
+        ffprobe.
 
     Returns
     -------
@@ -236,17 +246,16 @@ def extract_frame_timestamps(video_path: Path) -> np.ndarray:
     data = json.loads(result.stdout)
 
     frames = data.get("frames", [])
-    n_frames = len(frames)
+    n_frames = expected_n_frames or count_total_frames(video_path)
 
     timestamps = np.full(n_frames, np.nan, dtype=np.float32)  # Init with NaNs
 
-    n_frames_missing_ts = 0
     for i, frame in enumerate(frames):
         ts = frame.get("best_effort_timestamp_time")
         if ts is not None:
             timestamps[i] = float(ts)
-        else:
-            n_frames_missing_ts += 1
+
+    n_frames_missing_ts = np.count_nonzero(np.isnan(timestamps))
 
     # Interpolate missing timestamps
     if n_frames_missing_ts > 0:
@@ -259,6 +268,20 @@ def extract_frame_timestamps(video_path: Path) -> np.ndarray:
         timestamps = _interpolate_timestamps(timestamps)
 
     return timestamps
+
+
+def count_total_frames(video_path: Path) -> int:
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-count_frames",
+        "-show_entries", "stream=nb_read_frames",
+        "-of", "default=nokey=1:noprint_wrappers=1",
+        video_path.as_posix()
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return int(result.stdout.strip())
 
 
 def _interpolate_timestamps(timestamps: np.ndarray) -> np.ndarray:

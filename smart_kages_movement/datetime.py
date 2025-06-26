@@ -6,6 +6,7 @@ import subprocess
 import warnings
 from pathlib import Path
 
+from scipy.interpolate import interp1d
 import numpy as np
 import pandas as pd
 
@@ -16,7 +17,7 @@ def extract_datetimes(
     """
     Extract the start datetimes and the frame timestamps for each video.
 
-    The timestamps are stored per day, in a file named "adjustments.txt".
+    The start times are stored per day, in a file named "adjustments.txt".
     This file contains a mapping between video filenames and their
     corrected start datetimes in the format "video_filename:H,M,S".
     We will read this file and adjust the start datetimes
@@ -234,12 +235,60 @@ def extract_frame_timestamps(video_path: Path) -> np.ndarray:
 
     data = json.loads(result.stdout)
 
-    timestamps = [
-        float(frame["best_effort_timestamp_time"])
-        for frame in data.get("frames", [])
-        if "best_effort_timestamp_time" in frame
-    ]
-    return np.array(timestamps)
+    frames = data.get("frames", [])
+    n_frames = len(frames)
+
+    timestamps = np.full(n_frames, np.nan, dtype=np.float32)  # Init with NaNs
+
+    n_frames_missing_ts = 0
+    for i, frame in enumerate(frames):
+        ts = frame.get("best_effort_timestamp_time")
+        if ts is not None:
+            timestamps[i] = float(ts)
+        else:
+            n_frames_missing_ts += 1
+
+    # Interpolate missing timestamps
+    if n_frames_missing_ts > 0:
+        warnings.warn(
+            f"Video {video_path} has {n_frames_missing_ts} missing timestamps."
+            " The following frames will be filled with linear interpolation: "
+            f"{np.flatnonzero(np.isnan(timestamps)).tolist()}",
+            stacklevel=2,
+        )
+        timestamps = _interpolate_timestamps(timestamps)
+
+    return timestamps
+
+
+def _interpolate_timestamps(timestamps: np.ndarray) -> np.ndarray:
+    """
+    Linearly interpolate missing frame timestamps.
+
+    Parameters
+    ----------
+    timestamps : np.ndarray
+        Array of frame timestamps with NaNs for missing values.
+
+    Returns
+    -------
+    np.ndarray
+        Array with missing timestamps filled by linear interpolation.
+
+    """
+    n_frames = len(timestamps)
+    valid = ~np.isnan(timestamps)
+    x_valid = np.flatnonzero(valid)
+    y_valid = timestamps[valid]
+
+    interpolator = interp1d(
+        x_valid,
+        y_valid,
+        kind="linear",
+        bounds_error=False,
+        fill_value="extrapolate"
+    )
+    return interpolator(np.arange(n_frames))
 
 
 def _load_adjustments_file(

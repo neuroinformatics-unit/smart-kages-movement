@@ -6,6 +6,7 @@ import subprocess
 import warnings
 from pathlib import Path
 
+from scipy.interpolate import interp1d
 import numpy as np
 import pandas as pd
 
@@ -16,7 +17,7 @@ def extract_datetimes(
     """
     Extract the start datetimes and the frame timestamps for each video.
 
-    The timestamps are stored per day, in a file named "adjustments.txt".
+    The start times are stored per day, in a file named "adjustments.txt".
     This file contains a mapping between video filenames and their
     corrected start datetimes in the format "video_filename:H,M,S".
     We will read this file and adjust the start datetimes
@@ -185,13 +186,23 @@ def find_segment_overlaps(df: pd.DataFrame) -> pd.DataFrame | None:
         return overlaps
 
 
-def extract_frame_timestamps(video_path: Path) -> np.ndarray:
+def extract_frame_timestamps(
+    video_path: Path, expected_n_frames: int | None = None,
+) -> np.ndarray:
     """Extract timestamps of video frames using ffprobe.
+
+    If there are frames without timestamps, they will be filled with
+    linear interpolation.
 
     Parameters
     ----------
     video_path : Path
         Path to the video file.
+    expected_n_frames : int | None, optional
+        If provided, this is the expected number of frames in the video, which
+        we may know from another source (e.g. sleap_io). If None (default),
+        the function will count the total number of frames in the video using
+        ffprobe.
 
     Returns
     -------
@@ -234,12 +245,73 @@ def extract_frame_timestamps(video_path: Path) -> np.ndarray:
 
     data = json.loads(result.stdout)
 
-    timestamps = [
-        float(frame["best_effort_timestamp_time"])
-        for frame in data.get("frames", [])
-        if "best_effort_timestamp_time" in frame
+    frames = data.get("frames", [])
+    n_frames = expected_n_frames or count_total_frames(video_path)
+
+    timestamps = np.full(n_frames, np.nan, dtype=np.float32)  # Init with NaNs
+
+    for i, frame in enumerate(frames):
+        ts = frame.get("best_effort_timestamp_time")
+        if ts is not None:
+            timestamps[i] = float(ts)
+
+    n_frames_missing_ts = np.count_nonzero(np.isnan(timestamps))
+
+    # Interpolate missing timestamps
+    if n_frames_missing_ts > 0:
+        warnings.warn(
+            f"Video {video_path} has {n_frames_missing_ts} missing timestamps."
+            " The following frames will be filled with linear interpolation: "
+            f"{np.flatnonzero(np.isnan(timestamps)).tolist()}",
+            stacklevel=2,
+        )
+        timestamps = _interpolate_timestamps(timestamps)
+
+    return timestamps
+
+
+def count_total_frames(video_path: Path) -> int:
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-count_frames",
+        "-show_entries", "stream=nb_read_frames",
+        "-of", "default=nokey=1:noprint_wrappers=1",
+        video_path.as_posix()
     ]
-    return np.array(timestamps)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return int(result.stdout.strip())
+
+
+def _interpolate_timestamps(timestamps: np.ndarray) -> np.ndarray:
+    """
+    Linearly interpolate missing frame timestamps.
+
+    Parameters
+    ----------
+    timestamps : np.ndarray
+        Array of frame timestamps with NaNs for missing values.
+
+    Returns
+    -------
+    np.ndarray
+        Array with missing timestamps filled by linear interpolation.
+
+    """
+    n_frames = len(timestamps)
+    valid = ~np.isnan(timestamps)
+    x_valid = np.flatnonzero(valid)
+    y_valid = timestamps[valid]
+
+    interpolator = interp1d(
+        x_valid,
+        y_valid,
+        kind="linear",
+        bounds_error=False,
+        fill_value="extrapolate"
+    )
+    return interpolator(np.arange(n_frames))
 
 
 def _load_adjustments_file(

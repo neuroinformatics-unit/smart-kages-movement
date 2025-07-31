@@ -6,9 +6,9 @@ import subprocess
 import warnings
 from pathlib import Path
 
-from scipy.interpolate import interp1d
 import numpy as np
 import pandas as pd
+from scipy.interpolate import interp1d
 
 
 def extract_datetimes(
@@ -67,11 +67,14 @@ def extract_datetimes(
                 f"Adjustments file {adjustments_file} does not exist."
             )
 
-        if timestamps_file.exists():
+        try:
             timestamps = _load_corrected_timestamps(timestamps_file)
-        else:
-            raise FileNotFoundError(
-                f"Timestamps file {timestamps_file} does not exist."
+        except (FileNotFoundError, EOFError) as e:
+            timestamps = {}
+            warnings.warn(
+                f"Error loading timestamps file {timestamps_file}: {e}. "
+                "Will attempt to extract frame timestamps from video file.",
+                stacklevel=2,
             )
 
         midnight = pd.Timestamp(f"{date} 00:00:00")
@@ -84,32 +87,36 @@ def extract_datetimes(
             df.loc[(kage, date, hour), "start_datetime"] = (
                 midnight + pd.to_timedelta(adjustment, unit="s")
             )
-
-            # Extract timestamps from corrected_timestamps.pkl
             pose_filename = sub_df.loc[hour, "pose_file_path"].name
+
             if pose_filename in timestamps:
                 seconds_since_hour = timestamps[pose_filename]
-                first_timestamp = 3600 * int(hour) + seconds_since_hour[0]
-                # If the first timestamp is not equal to the adjustment,
-                # raise a warning and re-calculate the timestamps
-                if first_timestamp != adjustment:  # seconds since midnight
-                    warnings.warn(
-                        f"First timestamp for {pose_filename} does not match "
-                        f"the adjustment for {video_filename}. Setting "
-                        f"start_datetime to NaT.",
-                        stacklevel=2,
-                    )
-                    # Set the start_datetime to NaT to flag it as problematic
-                    df.loc[(kage, date, hour), "start_datetime"] = pd.NaT
-
-                # Express the timestamps as seconds since start of the video
-                frame_timestamps[(kage, date, hour)] = (
-                    seconds_since_hour - seconds_since_hour[0]
-                )
             else:
-                raise KeyError(
-                    f"Pose file {pose_filename} not found in timestamps file."
+                seconds_since_hour = extract_frame_timestamps(
+                    sub_df.loc[hour, "video_file_path"]
                 )
+                print(
+                    "Extracted frame timestamps from video file "
+                    f"{sub_df.loc[hour, 'video_file_path']}"
+                )
+
+            first_timestamp = 3600 * int(hour) + seconds_since_hour[0]
+            # If the first timestamp is not equal to the adjustment,
+            # raise a warning and re-calculate the timestamps
+            if first_timestamp != adjustment:  # seconds since midnight
+                warnings.warn(
+                    f"First timestamp for {pose_filename} does not match "
+                    f"the adjustment for {video_filename}. Setting "
+                    f"start_datetime to NaT.",
+                    stacklevel=2,
+                )
+                # Set the start_datetime to NaT to flag it as problematic
+                df.loc[(kage, date, hour), "start_datetime"] = pd.NaT
+
+            # Express the timestamps as seconds since start of the video
+            frame_timestamps[(kage, date, hour)] = (
+                seconds_since_hour - seconds_since_hour[0]
+            )
 
     return df, frame_timestamps
 
@@ -187,7 +194,8 @@ def find_segment_overlaps(df: pd.DataFrame) -> pd.DataFrame | None:
 
 
 def extract_frame_timestamps(
-    video_path: Path, expected_n_frames: int | None = None,
+    video_path: Path,
+    expected_n_frames: int | None = None,
 ) -> np.ndarray:
     """Extract timestamps of video frames using ffprobe.
 
@@ -273,12 +281,16 @@ def extract_frame_timestamps(
 def count_total_frames(video_path: Path) -> int:
     cmd = [
         "ffprobe",
-        "-v", "error",
-        "-select_streams", "v:0",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
         "-count_frames",
-        "-show_entries", "stream=nb_read_frames",
-        "-of", "default=nokey=1:noprint_wrappers=1",
-        video_path.as_posix()
+        "-show_entries",
+        "stream=nb_read_frames",
+        "-of",
+        "default=nokey=1:noprint_wrappers=1",
+        video_path.as_posix(),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return int(result.stdout.strip())
@@ -309,7 +321,7 @@ def _interpolate_timestamps(timestamps: np.ndarray) -> np.ndarray:
         y_valid,
         kind="linear",
         bounds_error=False,
-        fill_value="extrapolate"
+        fill_value="extrapolate",
     )
     return interpolator(np.arange(n_frames))
 

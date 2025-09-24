@@ -7,8 +7,7 @@ requires-python = ">=3.11.0"
 dynamic = ["version"]
 
 dependencies = [
-  "movement[napari]>=0.7.0",
-  "xarray[io]",
+  "movement[napari]>=0.10.0",
   "jupyter"
 ]
 

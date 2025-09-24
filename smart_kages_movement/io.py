@@ -117,6 +117,30 @@ def _get_video_path(kage_dir, datetime: pd.Timestamp) -> Path:
     return video_path
 
 
+def get_video_shape(path: Path) -> tuple[int, int, int, int]:
+    """Get the shape of a video without loading the entire file into memory.
+
+    Parameters
+    ----------
+    path : Pat
+        The path to the video file.
+
+    Returns
+    -------
+    tuple[int, int, int, int]
+        A tuple containing (n_frames, height, width, n_channels)
+    """
+    video = sio.load_video(path)
+    try:
+        shape = video.shape  # (frames, H, W[, C])
+        if len(shape) == 3:
+            return shape[0], shape[1], shape[2], 1
+        else:
+            return shape[0], shape[1], shape[2], shape[3]
+    finally:
+        video.close()
+
+
 def load_background_frame(
     video_path: Path, i: int = 0, n_average: int = 100
 ) -> np.ndarray:

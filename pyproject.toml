@@ -9,6 +9,7 @@ dynamic = ["version"]
 dependencies = [
   "movement[napari]>=0.10.0",
   "tables",
+  "netCDF4<1.7.3",  # Temporary fix for compatibility issues
   "jupyter"
 ]
 

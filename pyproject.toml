@@ -8,6 +8,7 @@ dynamic = ["version"]
 
 dependencies = [
   "movement[napari]>=0.10.0",
+  "tables",
   "jupyter"
 ]
 

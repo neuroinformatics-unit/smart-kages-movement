@@ -77,7 +77,7 @@ ignore = [
 
 
 [tool.ruff]
-line-length = 79
+line-length = 88
 exclude = ["__init__.py", "build", ".eggs"]
 lint.select = [
   "E",   # pycodestyle errors

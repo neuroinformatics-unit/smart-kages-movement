@@ -84,8 +84,8 @@ def extract_datetimes(
             video_filename = sub_df.loc[hour, "video_file_path"].name
             adjustment = adjustments.get(video_filename, np.nan)
             # adjustment is expressed in seconds since midnight
-            df.loc[(kage, date, hour), "start_datetime"] = (
-                midnight + pd.to_timedelta(adjustment, unit="s")
+            df.loc[(kage, date, hour), "start_datetime"] = midnight + pd.to_timedelta(
+                adjustment, unit="s"
             )
             pose_filename = sub_df.loc[hour, "pose_file_path"].name
 
@@ -148,9 +148,7 @@ def find_segment_overlaps(df: pd.DataFrame) -> pd.DataFrame | None:
     # Build an IntervalIndex per group
     results = []  # will collect tuples (iloc_i, iloc_j)
     for _, group in df.groupby(["kage", "date"]):
-        iv = pd.IntervalIndex.from_arrays(
-            group[start], group[end], closed="both"
-        )
+        iv = pd.IntervalIndex.from_arrays(group[start], group[end], closed="both")
 
         # for each row in the group, find which intervals overlap
         for iloc_i, interval in zip(group.index, iv, strict=True):
@@ -225,9 +223,7 @@ def extract_frame_timestamps(
     """
 
     if shutil.which("ffprobe") is None:
-        raise OSError(
-            "ffprobe not found. Please install FFmpeg (includes ffprobe)."
-        )
+        raise OSError("ffprobe not found. Please install FFmpeg (includes ffprobe).")
 
     cmd = [
         "ffprobe",
@@ -242,9 +238,7 @@ def extract_frame_timestamps(
     ]
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(  # noqa: B904
             f"ffprobe failed to extract timestamps from '{video_path}'.\n"
@@ -373,9 +367,7 @@ def _adjustment_is_valid(adjustment: tuple[int, int, int]) -> bool:
     Verifies that hours, minutes, and seconds are within valid ranges.
     """
     in_valid_range = (
-        0 <= adjustment[0] < 24
-        and 0 <= adjustment[1] < 60
-        and 0 <= adjustment[2] < 60
+        0 <= adjustment[0] < 24 and 0 <= adjustment[1] < 60 and 0 <= adjustment[2] < 60
     )
     return in_valid_range
 

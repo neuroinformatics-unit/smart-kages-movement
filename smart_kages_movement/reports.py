@@ -72,9 +72,7 @@ def count_empty_frames_daily(
     # Daily sum of frames with all keypoints missing, aka "empty frames"
     daily_empty_frames = all_kp_missing.groupby("time.date").sum("time")
     daily_total_frames = all_kp_missing.groupby("time.date").count("time")
-    daily_pct_empty_frames = (
-        all_kp_missing.groupby("time.date").mean("time") * 100
-    )
+    daily_pct_empty_frames = all_kp_missing.groupby("time.date").mean("time") * 100
 
     df = pd.DataFrame(
         {

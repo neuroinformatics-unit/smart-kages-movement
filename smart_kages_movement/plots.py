@@ -287,9 +287,7 @@ def plot_confidence_hist_per_keypoint(
         plt.legend()
 
     else:
-        raise ValueError(
-            "Invalid layout option. Choose 'subplots' or 'overlay'."
-        )
+        raise ValueError("Invalid layout option. Choose 'subplots' or 'overlay'.")
 
     plt.tight_layout()
 

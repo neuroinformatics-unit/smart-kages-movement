@@ -13,6 +13,12 @@ from smart_kages_movement.reports import (
 
 CMAP = "Set2"
 
+DEFAULT_SCATTER_ARGS = {
+    "s": 15,
+    "marker": "o",
+    "alpha": 1.0,
+}
+
 
 def show_first_frame_corner(video_path: Path, crop_height=20, crop_width=300):
     """Display the first frame of the video.
@@ -340,3 +346,63 @@ def plot_speed(
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=128)
+
+
+def plot_trajectory(
+    position: xr.DataArray,
+    ax: plt.Axes | None = None,
+    **kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    """Plot trajectory of a single keypoint.
+
+    This function plots the trajectory of a single point's ``position``,
+    by default colored by time (using the default colormap). Pass a different
+    variable through ``c`` in ``kwargs`` if desired.
+
+    Parameters
+    ----------
+    position : xr.DataArray
+        A data array containing position information, with `time` and `space`
+        as the only dimensions.
+    ax : matplotlib.axes.Axes or None, optional
+        Axes object on which to draw the trajectory. If None, a new
+        figure and axes are created.
+    **kwargs : dict
+        Additional keyword arguments passed to
+        :meth:`matplotlib.axes.Axes.scatter`.
+
+    Returns
+    -------
+    (figure, axes) : tuple of (matplotlib.pyplot.Figure, matplotlib.axes.Axes)
+        The figure and axes containing the trajectory plot.
+
+    """
+    # Squeeze out any lingering singleton dimensions
+    position = position.squeeze()
+
+    fig, ax = plt.subplots(figsize=(6, 6)) if ax is None else (ax.figure, ax)
+
+    # Merge default plotting args with user-provided kwargs
+    for key, value in DEFAULT_SCATTER_ARGS.items():
+        kwargs.setdefault(key, value)
+
+    if "c" not in kwargs:
+        kwargs["c"] = position.time
+
+    # Plot the scatter, colouring by time or user-provided colour
+    sc = ax.scatter(
+        position.sel(space="x"),
+        position.sel(space="y"),
+        **kwargs,
+    )
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+
+    # Add 'colorbar' for time dimension if no colour was provided by user
+    cbar_label = getattr(kwargs["c"], "name", "time")
+    if "units" in kwargs["c"].attrs:
+        cbar_label += f" [{kwargs['c'].units}]"
+    fig.colorbar(sc, ax=ax, label=cbar_label).solids.set(alpha=1.0)
+
+    return fig, ax

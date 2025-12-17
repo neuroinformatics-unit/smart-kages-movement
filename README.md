@@ -44,7 +44,9 @@ The notebooks are as follows:
 
 * `01_parse_data_into_df.ipynb`: Parses data paths from the Smart-Kages folder structure and stores them in pandas DataFrames. Also loads time adjustments to help estimate start and end times for each 1-hour segment, and identifies potential issues with the data, such as overlapping segments.
 * `02_load_kages_as_movement_ds.ipynb`: Loads all DeepLabCut `.h5` pose files for each kage and concatenates them into a single `movement` dataset per kage. Also assigns a datetime index across the `time` dimension for easy access, and saves the resulting datasets to NetCDF files.
-* `03_diagnostic_plots.ipynb`: Still a work in progress—stay tuned!
+* `03_QC_and_cleaning.ipynb`: Runs QC on each kage's NetCDF output, plots frame counts and keypoint confidences, then filters low-confidence points, smooths positions, interpolates gaps, and writes cleaned positions back to the datasets while saving QC reports.
+* `04_select_data_for_analysis.ipynb`: Uses the QC outputs to pick the subset of kages and the best week of data to analyze, along with the most reliable keypoint(s) to focus on for downstream work.
+* `05_best_week_overview.ipynb`: Explores the selected best week per kage and generates comparison plots that summarize movement metrics across the curated cohort.
 
 ## Input/Output Data Structure
 

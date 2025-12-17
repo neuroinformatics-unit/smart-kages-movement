@@ -171,3 +171,26 @@ def load_background_frame(
     # Average the frames from i to i + n_average
     background_image = video[i : i + n_average].mean(axis=0).astype(np.uint8)
     return background_image
+
+
+def save_segment_timestamps(
+    segment: tuple[str, str, str], timestamps: pd.Series, timestamps_dir: Path
+) -> tuple[tuple[str, str, str], Path]:
+    """Save timestamps for a single (kage, date, hour) segment.
+
+    Parameters
+    ----------
+    segment : tuple[str, str, str]
+        A tuple containing (kage, date, hour) identifying the segment,
+        e.g., ('kage1', '20230101', '01').
+    timestamps : pd.Series
+        A pandas Series containing the datetime timestamps for the segment.
+    timestamps_dir : Path
+        The directory where the timestamps file will be saved.
+    """
+    timestamps_dir = Path(timestamps_dir)
+    (kage, date, hour) = segment
+    iso_stamps = pd.to_datetime(timestamps).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    path = timestamps_dir / f"{kage}_{date}_{hour}_timestamps.txt"
+    np.savetxt(path, iso_stamps, fmt="%s")
+    return (kage, date, hour), path

@@ -9,7 +9,7 @@ Using the [movement](https://movement.neuroinformatics.com) package to analyse m
 First, create a conda environment with some required dependencies:
 
 ```bash
-conda create -n smart-kages -c conda-forge python=3.13 pytables
+conda create -n smart-kages -c conda-forge python=3.13 pytables ffmpeg
 conda activate smart-kages
 ```
 

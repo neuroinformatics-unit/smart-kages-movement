@@ -187,6 +187,12 @@ def save_segment_timestamps(
         A pandas Series containing the datetime timestamps for the segment.
     timestamps_dir : Path
         The directory where the timestamps file will be saved.
+
+    Returns
+    -------
+    tuple[tuple[str, str, str], Path]
+        A tuple containing the segment identifier (kage, date, hour)
+        and the path to the saved timestamps file.
     """
     timestamps_dir = Path(timestamps_dir)
     (kage, date, hour) = segment

@@ -303,6 +303,7 @@ def plot_confidence_hist_per_keypoint(
 
 def plot_speed(
     speed: xr.DataArray,
+    dark_period: tuple[str, str] | None = None,
     save_path: Path | None = None,
 ) -> None:
     """
@@ -312,6 +313,11 @@ def plot_speed(
     ----------
     ds: xr.DataArray
         The data array containing body speed data.
+    dark_period: tuple[str, str] | None
+        Optional tuple specifying the start and end of the dark period, which
+        will be shaded on plot. The tuple has to be of the format
+        (start_time, end_time), e.g., ('09:30', '20:30').
+        Default is None, meaning no shading is applied.
     save_path: Path | None
         Optional path to save the plot. If None, the plot will not be saved.
 
@@ -319,6 +325,18 @@ def plot_speed(
     fig, (ax, ax_hist) = plt.subplots(
         1, 2, figsize=(12, 4), gridspec_kw={"width_ratios": [4, 1]}
     )
+
+    # Apply shading for dark periods if specified
+    if dark_period:
+        start_time, end_time = dark_period
+        # Shade dark periods on the speed over time plot
+        current_date = pd.to_datetime(str(speed.time.dt.date.min().values))
+        end_date = pd.to_datetime(str(speed.time.dt.date.max().values))
+        while current_date <= end_date:
+            on = pd.to_datetime(f"{current_date.date()} {start_time}")
+            off = pd.to_datetime(f"{current_date.date()} {end_time}")
+            ax.axvspan(on, off, facecolor="gray", edgecolor=None, alpha=0.3)
+            current_date += pd.Timedelta(days=1)
 
     speed.plot.line(x="time", lw=0.5, ax=ax)
     ax.set_title("Speed over time")

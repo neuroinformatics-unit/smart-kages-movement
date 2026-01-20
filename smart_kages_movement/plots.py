@@ -4,6 +4,8 @@ from typing import Literal
 import matplotlib.pyplot as plt
 import pandas as pd
 import xarray as xr
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from sleap_io import load_video
 
 from smart_kages_movement.reports import (
@@ -305,7 +307,7 @@ def plot_speed(
     speed: xr.DataArray,
     dark_period: tuple[str, str] | None = None,
     save_path: Path | None = None,
-) -> None:
+) -> Figure:
     """
     Plot speed over time and a histogram of the speed values.
 
@@ -320,6 +322,11 @@ def plot_speed(
         Default is None, meaning no shading is applied.
     save_path: Path | None
         Optional path to save the plot. If None, the plot will not be saved.
+
+    Returns
+    -------
+    fig : matplotlib.pyplot.Figure
+        The figure containing the two subplots (speed over time and histogram).
 
     """
     fig, (ax, ax_hist) = plt.subplots(
@@ -365,12 +372,14 @@ def plot_speed(
     if save_path:
         plt.savefig(save_path, dpi=128)
 
+    return fig
+
 
 def plot_trajectory(
     position: xr.DataArray,
     ax: plt.Axes | None = None,
     **kwargs,
-) -> tuple[plt.Figure, plt.Axes]:
+) -> tuple[Figure, Axes]:
     """Plot trajectory of a single keypoint.
 
     This function plots the trajectory of a single point's ``position``,

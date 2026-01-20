@@ -73,6 +73,7 @@ ignore = [
   "tests/test_integration/",
   "docs/",
   "docs/source/",
+  "CLAUDE.md",
 ]
 
 

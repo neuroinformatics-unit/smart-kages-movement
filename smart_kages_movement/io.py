@@ -20,9 +20,70 @@ Each Smart-Kage folder contains:
 from pathlib import Path
 from typing import Any
 
+import h5py
 import numpy as np
 import pandas as pd
 import sleap_io as sio
+
+
+def fix_dlc_h5_key(file_path: Path) -> bool:
+    """Rename 'data' key to 'df_with_missing' in a DLC HDF5 file if needed.
+
+    Some DLC output files use 'data' as the key instead of the expected
+    'df_with_missing'. It's unclear why this has happened in a subset of
+    smart kages. Nevertheless the contents seem to be as expected, despite
+    the difference in key name. This function detects such files and
+    renames the key in-place without loading the data into memory.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the DLC HDF5 file.
+
+    Returns
+    -------
+    bool
+        True if the key was renamed, False if no change was needed
+        (file already has 'df_with_missing' or neither key exists).
+
+    Raises
+    ------
+    ValueError
+        If the file contains neither 'data' nor 'df_with_missing' keys.
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> from smart_kages_movement.io import fix_dlc_h5_key
+
+    Fix a single file:
+
+    >>> was_fixed = fix_dlc_h5_key(Path("path/to/dlc_output.h5"))
+
+    Or batch fix all files in a directory:
+
+    >>> for h5_file in data_dir.glob("**/*.h5"):
+    ...     if fix_dlc_h5_key(h5_file):
+    ...         print(f"Fixed: {h5_file}")
+
+    """
+    with h5py.File(file_path, "r") as f:
+        keys = set(f.keys())
+
+    if "df_with_missing" in keys:
+        return False
+
+    if "data" not in keys:
+        raise ValueError(
+            f"File {file_path} contains neither 'data' nor 'df_with_missing'. "
+            f"Found keys: {keys}"
+        )
+
+    # Rename 'data' to 'df_with_missing' in-place
+    with h5py.File(file_path, "r+") as f:
+        f.move("data", "df_with_missing")
+
+    return True
 
 
 def parse_data_into_df(data_dir: Path) -> pd.DataFrame:

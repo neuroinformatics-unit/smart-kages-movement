@@ -433,3 +433,58 @@ def plot_trajectory(
     fig.colorbar(sc, ax=ax, label=cbar_label).solids.set(alpha=1.0)
 
     return fig, ax
+
+
+def plot_activity_heatmap(
+    activity: xr.DataArray,
+    save_path: Path | None = None,
+    cmap: str = CMAP,
+) -> None:
+    """Plot heatmap of activity over a week.
+
+    Parameters
+    ----------
+    activity : xr.DataArray
+        The data array containing activity levels, with dimensions
+        'time' and `individuals`.
+    save_path : Path | None
+        Optional path to save the plot. If None, the plot will not be saved.
+        If provided, a CSV file with the underlying data will also be saved
+        alongside the plot.
+    cmap : str
+        The colormap to use for the heatmap. Any of the qualitative matplotlib
+        colormaps can be used.
+    """
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    activity_vmax = activity.quantile(0.99).item()  # use 99th percentile
+
+    activity.plot.pcolormesh(
+        x="time",
+        y="individuals",
+        ax=ax,
+        cmap=cmap,
+        vmin=0,
+        vmax=activity_vmax,
+    )
+
+    # Replace xtick labels with number of days since start
+    week_start = activity.time.min().item()
+    week_end = activity.time.max().item()
+    daily_ticks = pd.date_range(start=week_start, end=week_end, freq="D")
+    daily_tick_labels = [
+        int((pd.Timestamp(tick) - pd.Timestamp(week_start)).days)
+        for tick in daily_ticks
+    ]
+    ax.set_xticks(daily_ticks)
+    ax.set_xticklabels(daily_tick_labels)
+    ax.set_xlabel("Days")
+    ax.set_ylim(-0.5, len(activity.individuals) - 0.5)
+
+    plt.suptitle("Activity heatmap")
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=128)
+        activity.to_pandas().to_csv(save_path.with_suffix(".csv"))

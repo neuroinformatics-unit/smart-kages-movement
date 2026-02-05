@@ -43,8 +43,8 @@ def fix_dlc_h5_key(file_path: Path) -> bool:
     Returns
     -------
     bool
-        True if the key was renamed, False if no change was needed
-        (file already has 'df_with_missing' or neither key exists).
+        True if the key was renamed from 'data' to 'df_with_missing', False if
+        no change was needed because the file already has 'df_with_missing'.
 
     Raises
     ------

@@ -81,7 +81,13 @@ def fix_dlc_h5_key(file_path: Path) -> bool:
 
     # Rename 'data' to 'df_with_missing' in-place
     with h5py.File(file_path, "r+") as f:
-        f.move("data", "df_with_missing")
+        try:
+            f.move("data", "df_with_missing")
+        except KeyError:
+            # Another process may have already renamed the key
+            if "df_with_missing" in f:
+                return False
+            raise
 
     return True
 

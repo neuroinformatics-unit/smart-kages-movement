@@ -2,10 +2,12 @@ from pathlib import Path
 from typing import Literal
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from movement.plots import plot_occupancy
 from sleap_io import load_video
 
 from smart_kages_movement.reports import (
@@ -488,3 +490,68 @@ def plot_activity_heatmap(
     if save_path:
         plt.savefig(save_path, dpi=128)
         activity.to_pandas().to_csv(save_path.with_suffix(".csv"))
+
+
+def plot_trajectory_and_occupancy(
+    position: xr.DataArray,
+    bg_image: np.ndarray | None = None,
+    title: str = "",
+    save_path: Path | None = None,
+    trajectory_kwargs: dict | None = None,
+    occupancy_kwargs: dict | None = None,
+) -> tuple[Figure, tuple[Axes, Axes]]:
+    """Plot trajectory and occupancy heatmap side by side.
+
+    Parameters
+    ----------
+    position : xr.DataArray
+        Position data with ``time`` and ``space`` dimensions.
+    bg_image : np.ndarray | None
+        Optional background image to display behind both panels.
+    title : str
+        Figure suptitle. Default is "".
+    save_path : Path | None
+        Optional path to save the plot. If None, the plot will not be saved.
+    trajectory_kwargs : dict | None
+        Additional keyword arguments forwarded to
+        :func:`plot_trajectory` (e.g. ``c``, ``cmap``, ``vmin``, ``vmax``).
+    occupancy_kwargs : dict | None
+        Additional keyword arguments forwarded to
+        :func:`movement.plots.plot_occupancy`.
+
+    Returns
+    -------
+    (fig, (ax_traj, ax_occ)) : tuple
+        The figure and the trajectory / occupancy axes.
+    """
+    trajectory_kwargs = trajectory_kwargs or {}
+    occupancy_kwargs = occupancy_kwargs or {}
+
+    fig, (ax_traj, ax_occ) = plt.subplots(ncols=2, figsize=(12, 4))
+
+    if bg_image is not None:
+        height, width = bg_image.shape[:2]
+        extent = (0, width, height, 0)
+        for ax in (ax_traj, ax_occ):
+            ax.imshow(bg_image, extent=extent)
+            ax.axis("off")
+
+    plot_trajectory(position, ax=ax_traj, **trajectory_kwargs)
+    plot_occupancy(position, ax=ax_occ, **occupancy_kwargs)
+
+    # Invert y-axis on the occupancy panel to match the video frame
+    if bg_image is not None:
+        ax_occ.set_ylim([height - 1, 0])
+
+    ax_traj.set_title("Trajectory")
+    ax_occ.set_title("Occupancy")
+
+    if title:
+        fig.suptitle(title)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=128)
+
+    return fig, (ax_traj, ax_occ)

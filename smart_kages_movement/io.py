@@ -240,6 +240,35 @@ def load_background_frame(
     return background_image
 
 
+def load_segment_timestamps(path: Path) -> np.ndarray:
+    """Load datetime timestamps for a single video segment from a CSV file.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the timestamps CSV file, as saved by
+        :func:`save_segment_timestamps`. Each row contains a single
+        ISO 8601 datetime string.
+
+    Returns
+    -------
+    np.ndarray
+        Array of datetime64 timestamps, one per video frame.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the timestamps file does not exist.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Timestamps file not found: {path}")
+    return (
+        pd.read_csv(path, header=None, index_col=False, parse_dates=[0])
+        .iloc[:, 0]
+        .values
+    )
+
+
 def save_segment_timestamps(
     segment: tuple[str, str, str], timestamps: pd.Series, timestamps_dir: Path
 ) -> tuple[tuple[str, str, str], Path]:

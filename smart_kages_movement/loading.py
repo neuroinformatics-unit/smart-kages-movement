@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from movement.io import load_poses
+from movement.io import load_dataset
 
 from smart_kages_movement.io import (
     fix_dlc_h5_key,
@@ -117,7 +117,7 @@ def kage_to_movement_ds(
             print(f"Fixed HDF5 key for {pose_file_path.name}")
 
         # Load the pose data for the current 1-hour segment
-        poses = load_poses.from_file(
+        poses = load_dataset(
             pose_file_path,
             source_software="DeepLabCut",
             fps=fps,

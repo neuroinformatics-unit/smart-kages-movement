@@ -7,7 +7,7 @@ requires-python = ">=3.11.0"
 dynamic = ["version"]
 
 dependencies = [
-  "movement[napari]>=0.10.0",
+  "movement[napari]>=0.14.0",
   "tables",
   "netCDF4<1.7.3",  # Temporary fix for compatibility issues
   "jupyter"

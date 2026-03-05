@@ -11,6 +11,12 @@ import pandas as pd
 from scipy.interpolate import interp1d
 
 
+def hhmm_to_minutes(hhmm: str) -> int:
+    """Convert a ``"HH:MM"`` string to total minutes since midnight."""
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
 def extract_datetimes(
     df: pd.DataFrame,
 ) -> tuple[pd.DataFrame, dict[tuple[str, str, str], np.ndarray]]:

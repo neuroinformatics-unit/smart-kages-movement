@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 from movement.plots import plot_occupancy
 from sleap_io import load_video
 
+from smart_kages_movement.datetime import hhmm_to_minutes
 from smart_kages_movement.reports import (
     count_empty_frames_daily,
     count_missing_keypoints_daily,
@@ -495,11 +496,6 @@ def plot_activity_heatmap(
         activity.to_pandas().to_csv(save_path.with_suffix(".csv"))
 
 
-def _clock_to_minutes(t: str) -> int:
-    """Convert hh:mm string to total minutes since midnight."""
-    return int(t.split(":")[0]) * 60 + int(t.split(":")[1])
-
-
 def _add_dark_period_bar(
     ax: Axes, dark_period: tuple[str, str], bar_height: float = 0.05
 ) -> None:
@@ -514,8 +510,8 @@ def _add_dark_period_bar(
     bar_height : float
         Height of the bar as a fraction of the axes height. Default is 0.05.
     """
-    dark_start = _clock_to_minutes(dark_period[0])
-    dark_end = _clock_to_minutes(dark_period[1])
+    dark_start = hhmm_to_minutes(dark_period[0])
+    dark_end = hhmm_to_minutes(dark_period[1])
     bar_ax = ax.inset_axes(
         [0, 1 + bar_height, 1, bar_height],
         sharex=ax,
@@ -675,6 +671,64 @@ def plot_actogram_cohort(
     ax.set_xlabel("Time of day")
 
     _add_dark_period_bar(ax, dark_period, bar_height=0.02)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=128)
+
+    return fig
+
+
+def plot_mean_daily_activity_profile(
+    actogram: xr.DataArray,
+    dark_period: tuple[str, str],
+    save_path: Path | None = None,
+) -> Figure:
+    """Plot the average daily activity profile across individuals.
+
+    Averages the actogram over days to produce a single representative profile
+    per individual, then plots each individual as a thin line with the cohort
+    mean overlaid. The dark period is shaded.
+
+    Parameters
+    ----------
+    actogram:
+        3D DataArray with dimensions ``(individuals, day, minutes)``.
+    dark_period:
+        Start and end of the dark period as ``('HH:MM', 'HH:MM')``.
+    save_path:
+        Optional path to save the figure.
+
+    Returns
+    -------
+    Figure
+        The matplotlib figure.
+    """
+    mean_daily_profile = actogram.mean(dim="day")
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    for kage in mean_daily_profile.individuals.values:
+        mean_daily_profile.sel(individuals=kage).plot.line(
+            x="minutes", ax=ax, color="steelblue", alpha=0.3, lw=1, add_legend=False
+        )
+
+    mean_daily_profile.mean(dim="individuals").plot.line(
+        x="minutes", ax=ax, color="blue", lw=2, label="Cohort mean"
+    )
+
+    dark_start = hhmm_to_minutes(dark_period[0])
+    dark_end = hhmm_to_minutes(dark_period[1])
+    ax.axvspan(dark_start, dark_end, color="0.1", alpha=0.15, label="Dark period")
+
+    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
+    ax.set_xticks(hour_ticks)
+    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
+    ax.set_xlabel("Time of day")
+    ax.set_ylabel(f"Activity ({mean_daily_profile.attrs.get('units', 'cm/bin')})")
+    ax.set_title("Average daily activity profile")
+    ax.set_xlim(0, 24 * 60)
+    ax.legend()
 
     plt.tight_layout()
     if save_path:

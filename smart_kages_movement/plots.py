@@ -495,6 +495,194 @@ def plot_activity_heatmap(
         activity.to_pandas().to_csv(save_path.with_suffix(".csv"))
 
 
+def _clock_to_minutes(t: str) -> int:
+    """Convert hh:mm string to total minutes since midnight."""
+    return int(t.split(":")[0]) * 60 + int(t.split(":")[1])
+
+
+def _add_dark_period_bar(
+    ax: Axes, dark_period: tuple[str, str], bar_height: float = 0.05
+) -> None:
+    """Add a dark period indicator bar as an inset axis above ax.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes above which the bar will be drawn.
+    dark_period : tuple[str, str]
+        Start and end of the dark period as ``('HH:MM', 'HH:MM')``.
+    bar_height : float
+        Height of the bar as a fraction of the axes height. Default is 0.05.
+    """
+    dark_start = _clock_to_minutes(dark_period[0])
+    dark_end = _clock_to_minutes(dark_period[1])
+    bar_ax = ax.inset_axes(
+        [0, 1 + bar_height, 1, bar_height],
+        sharex=ax,
+        sharey=None,
+        transform=ax.transAxes,
+    )
+    bar_ax.set_ylim(0, 1)
+    bar_ax.axis("off")
+    bar_ax.axvspan(dark_start, dark_end, facecolor="0.1", edgecolor="none")
+
+
+def _stack_actogram(actogram: xr.DataArray) -> xr.DataArray:
+    """Stack a 3D actogram into a tall 2D array for cohort plotting.
+
+    Parameters
+    ----------
+    actogram : xr.DataArray
+        3D DataArray with dimensions ``(individuals, day, minutes)``.
+
+    Returns
+    -------
+    xr.DataArray
+        2D DataArray with dimensions ``(minutes, individuals_days)`` and a
+        ``kage_day_id`` string coordinate for y-axis labelling.
+    """
+    actogram_tall = actogram.stack(individuals_days=("individuals", "day"))
+    kage_day_labels = [
+        f"{ind}_day{day}" for ind, day in actogram_tall.individuals_days.values
+    ]
+    return actogram_tall.assign_coords(
+        kage_day_id=("individuals_days", kage_day_labels)
+    )
+
+
+def plot_actogram(
+    actogram: xr.DataArray,
+    dark_period: tuple[str, str],
+    title: str = "",
+    save_path: Path | None = None,
+    cmap: str = "viridis",
+    vmax: float | None = None,
+) -> Figure:
+    """Plot an actogram for a single individual.
+
+    Parameters
+    ----------
+    actogram : xr.DataArray
+        2D DataArray with dimensions ``(day, minutes)``.
+    dark_period : tuple[str, str]
+        Start and end of the dark period as ``('HH:MM', 'HH:MM')``.
+    title : str
+        Plot title. Default is ``""``.
+    save_path : Path | None
+        Optional path to save the figure.
+    cmap : str
+        Colormap. Default is ``"viridis"``.
+    vmax : float | None
+        Maximum value for the color scale. If ``None``, the 99th percentile
+        of the data is used.
+
+    Returns
+    -------
+    Figure
+        The matplotlib figure.
+    """
+    if vmax is None:
+        vmax = float(actogram.quantile(0.99))
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    actogram.plot.pcolormesh(
+        x="minutes",
+        y="day",
+        ax=ax,
+        yincrease=False,
+        cmap=cmap,
+        vmin=0,
+        vmax=vmax,
+        cbar_kwargs={"fraction": 0.03, "pad": 0.02},
+    )
+
+    _add_dark_period_bar(ax, dark_period)
+
+    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
+    ax.set_xticks(hour_ticks)
+    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
+    ax.set_xlabel("Time of day")
+    ax.set_ylabel("Day")
+    ax.set_title(title)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=128)
+
+    return fig
+
+
+def plot_actogram_cohort(
+    actogram: xr.DataArray,
+    dark_period: tuple[str, str],
+    save_path: Path | None = None,
+    cmap: str = "viridis",
+    vmax: float | None = None,
+) -> Figure:
+    """Plot a stacked actogram for the full cohort.
+
+    Internally stacks the 3D actogram into a tall 2D array with one row
+    per individual * day combination.
+
+    Parameters
+    ----------
+    actogram : xr.DataArray
+        3D DataArray with dimensions ``(individuals, day, minutes)``.
+    dark_period : tuple[str, str]
+        Start and end of the dark period as ``('HH:MM', 'HH:MM')``.
+    save_path : Path | None
+        Optional path to save the figure.
+    cmap : str
+        Colormap. Default is ``"viridis"``.
+    vmax : float | None
+        Maximum value for the color scale. If ``None``, the 99th percentile
+        of the data is used.
+
+    Returns
+    -------
+    Figure
+        The matplotlib figure.
+    """
+    if vmax is None:
+        vmax = float(actogram.quantile(0.99))
+
+    actogram_tall = _stack_actogram(actogram)
+    n_days = actogram.sizes["day"]
+    individuals = actogram.individuals.values
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    actogram_tall.plot.pcolormesh(
+        x="minutes",
+        y="kage_day_id",
+        yincrease=False,
+        cmap=cmap,
+        vmin=0,
+        vmax=vmax,
+        ax=ax,
+        cbar_kwargs={"fraction": 0.03, "pad": 0.02},
+    )
+    ax.set_title("Full cohort actogram")
+
+    tick_positions = [i * n_days for i in range(len(individuals))]
+    ax.set_yticks(tick_positions)
+    ax.set_yticklabels(individuals)
+
+    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
+    ax.set_xticks(hour_ticks)
+    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
+    ax.set_xlabel("Time of day")
+
+    _add_dark_period_bar(ax, dark_period, bar_height=0.02)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=128)
+
+    return fig
+
+
 def plot_trajectory_and_occupancy(
     position: xr.DataArray,
     bg_image: np.ndarray | None = None,

@@ -118,6 +118,53 @@ def inter_daily_stability(activity: xr.DataArray, actogram: xr.DataArray) -> pd.
     return is_metric.to_pandas()
 
 
+def relative_amplitude(actogram: xr.DataArray) -> pd.DataFrame:
+    """Compute Relative Amplitude (RA), M10, and L5 per individual.
+
+    ``RA = (M10 - L5) / (M10 + L5)``
+
+    where ``M10`` is the mean activity in the most active consecutive 10-hour
+    window, and ``L5`` is the mean activity in the least active consecutive
+    5-hour window, both computed on the average daily profile.
+
+    Range is [0, 1]; higher values indicate a stronger contrast between the
+    active and rest phases.
+
+    Parameters
+    ----------
+    actogram:
+        DataArray with dimensions (individuals, day, minutes).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns ``RA``, ``M10``, ``L5``, indexed by individuals.
+    """
+    avg_profile = actogram.mean(dim="day")
+
+    bin_size = float(avg_profile.minutes[1] - avg_profile.minutes[0])
+    m10_bins = round(10 * 60 / bin_size)
+    l5_bins = round(5 * 60 / bin_size)
+
+    # min_periods=1 so that windows containing NaN bins (missing data) still
+    # produce a valid mean rather than propagating NaN across the whole window.
+    m10_roll = avg_profile.rolling(minutes=m10_bins, min_periods=1).mean()
+    l5_roll = avg_profile.rolling(minutes=l5_bins, min_periods=1).mean()
+
+    m10 = m10_roll.max(dim="minutes", skipna=True)
+    l5 = l5_roll.min(dim="minutes", skipna=True)
+
+    ra = (m10 - l5) / (m10 + l5)
+
+    return pd.DataFrame(
+        {
+            "RA": ra.to_pandas(),
+            "M10": m10.to_pandas(),
+            "L5": l5.to_pandas(),
+        }
+    )
+
+
 def compute_circadian_metrics(
     ds_activity: xr.Dataset, dark_period: tuple[str, str]
 ) -> pd.DataFrame:
@@ -134,15 +181,20 @@ def compute_circadian_metrics(
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns ``DI``, ``IV``, ``IS``, indexed by individuals.
+        DataFrame with columns ``DI``, ``IV``, ``IS``, ``RA``, ``M10``,
+        ``L5``, indexed by individuals.
     """
     activity = ds_activity.activity
     actogram = ds_activity.actogram
 
+    ra_df = relative_amplitude(actogram)
     return pd.DataFrame(
         {
             "DI": diurnality_index(actogram, dark_period),
             "IV": intra_daily_variability(activity),
             "IS": inter_daily_stability(activity, actogram),
+            "RA": ra_df["RA"],
+            "M10": ra_df["M10"],
+            "L5": ra_df["L5"],
         }
     )

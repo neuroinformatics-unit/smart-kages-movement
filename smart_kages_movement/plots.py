@@ -457,6 +457,9 @@ def plot_activity_heatmap(
         The colormap to use for the heatmap. Any of the qualitative matplotlib
         colormaps can be used.
     """
+    # If there is a singleton keypoint dimension, squeeze it out
+    if "keypoints" in activity.dims and activity.sizes["keypoints"] == 1:
+        activity = activity.squeeze("keypoints")
 
     fig, ax = plt.subplots(figsize=(12, 8))
 

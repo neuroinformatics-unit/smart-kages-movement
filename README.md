@@ -46,7 +46,9 @@ The notebooks are as follows:
 * `02_load_kages_as_movement_ds.ipynb`: Loads all DeepLabCut `.h5` pose files for each kage and concatenates them into a single `movement` dataset per kage. Also assigns a datetime index across the `time` dimension for easy access, and saves the resulting datasets to NetCDF files.
 * `03_QC_and_cleaning.ipynb`: Runs QC on each kage's NetCDF output, plots frame counts and keypoint confidences, then filters low-confidence points, smooths positions, interpolates gaps, and writes cleaned positions back to the datasets while saving QC reports.
 * `04_select_data_for_analysis.ipynb`: Uses the QC outputs to pick the subset of kages and the best week of data to analyze, along with the most reliable keypoint(s) to focus on for downstream work.
-* `05_best_week_overview.ipynb`: Explores the selected best week per kage and generates comparison plots that summarize movement metrics across the curated cohort.
+* `05_speed_and_occupancy.ipynb`: Computes speed (cm/s) for the best week, plots speed histograms and time series, generates trajectory and occupancy maps per individual, and saves speed to disk for downstream notebooks.
+* `06_actograms.ipynb`: Computes binned activity (cumulative distance per time bin) from speed, plots activity heatmaps, individual and cohort actograms, and average daily activity profiles. Saves activity and actogram arrays to disk.
+* `07_circadian_metrics.ipynb`: Computes circadian metrics per individual from the binned activity data: Diurnality Index (DI), Intra-daily Variability (IV), Inter-daily Stability (IS), and Relative Amplitude (RA). Saves results as a CSV and strip-plot figure.
 
 ## Input/Output Data Structure
 

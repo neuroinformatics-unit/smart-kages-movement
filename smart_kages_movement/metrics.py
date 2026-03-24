@@ -166,7 +166,9 @@ def relative_amplitude(actogram: xr.DataArray) -> pd.DataFrame:
 
 
 def compute_circadian_metrics(
-    ds_activity: xr.Dataset, dark_period: tuple[str, str]
+    ds_activity: xr.Dataset,
+    dark_period: tuple[str, str],
+    group_by: str | None = None,
 ) -> pd.DataFrame:
     """Compute all circadian metrics and return them as a combined DataFrame.
 
@@ -177,18 +179,26 @@ def compute_circadian_metrics(
         (individuals, day, minutes) data variables.
     dark_period:
         Start and end of the dark period as ``("HH:MM", "HH:MM")``.
+    group_by:
+        Name of a non-dimension coordinate of the ``individuals`` dimension.
+        If provided, its values are included as a column in the returned
+        DataFrame, which is useful for downstream grouping or plotting.
+        Default is ``None``.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with columns ``DI``, ``IV``, ``IS``, ``RA``, ``M10``,
-        ``L5``, indexed by individuals.
+        ``L5`` (and ``group_by`` if provided), indexed by individuals.
     """
     activity = ds_activity.activity
     actogram = ds_activity.actogram
 
+    if group_by is not None and group_by not in activity.coords:
+        raise ValueError(f"'{group_by}' is not a coordinate of the Dataset.")
+
     ra_df = relative_amplitude(actogram)
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             "DI": diurnality_index(actogram, dark_period),
             "IV": intra_daily_variability(activity),
@@ -198,3 +208,8 @@ def compute_circadian_metrics(
             "L5": ra_df["L5"],
         }
     )
+
+    if group_by is not None:
+        df[group_by] = activity.coords[group_by].to_pandas()
+
+    return df

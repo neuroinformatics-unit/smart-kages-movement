@@ -245,7 +245,7 @@ def plot_confidence_hist_per_keypoint(
     else:
         title = "Confidence histograms per keypoint"
 
-    colors = plt.cm.get_cmap(cmap).colors
+    colors = plt.colormaps[cmap].colors
 
     if layout == "subplots":
         # Create subplots for each keypoint
@@ -844,7 +844,7 @@ def plot_mean_daily_activity_profile(
         raise ValueError(f"'{group_by}' is not a coordinate of the DataArray.")
 
     mean_daily_profile = actogram.mean(dim="day")
-    colors = plt.cm.get_cmap(cmap).colors
+    colors = plt.colormaps[cmap].colors
 
     if group_by is not None:
         unique_groups = np.unique(actogram.coords[group_by].values)

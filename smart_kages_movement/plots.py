@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +24,9 @@ DEFAULT_SCATTER_ARGS = {
     "marker": "o",
     "alpha": 1.0,
 }
+
+_HOUR_TICKS = np.arange(0, 24 * 60 + 1, 4 * 60)
+_HOUR_LABELS = [f"{int(m // 60):02d}:00" for m in _HOUR_TICKS]
 
 
 def show_first_frame_corner(video_path: Path, crop_height=20, crop_width=300):
@@ -73,7 +77,7 @@ def plot_missing_keypoints_heatmap(
     days = [day.strftime("%Y-%m-%d") for day in list(missing_kpt.date.values)]
     missing_kpt = missing_kpt.assign_coords(date=days)
 
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), layout="constrained")
     plot_params = {
         "vmin": 0,
         "vmax": 100,
@@ -84,8 +88,6 @@ def plot_missing_keypoints_heatmap(
     ax.set_title(f"{kage_name}: {title_str}")
     ax.set_xticks(range(len(days)))
     ax.set_xticklabels(days, rotation=90)
-
-    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=128)
@@ -122,7 +124,9 @@ def plot_daily_qc(
 
     df = count_empty_frames_daily(ds.position)
 
-    fig, axes = plt.subplots(nrows=2, figsize=(12, 6), sharex=True)
+    fig, axes = plt.subplots(
+        nrows=2, figsize=(12, 6), sharex=True, layout="constrained"
+    )
     plt.suptitle(f"{kage_name}: daily QC metrics")
 
     # Plot number of expected, total and empty frames per day
@@ -155,7 +159,6 @@ def plot_daily_qc(
 
     if xlim:
         plt.xlim(*xlim)
-    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=128)
@@ -181,7 +184,7 @@ def plot_confidence_quartiles_per_keypoint(
     confidence = ds.confidence.squeeze()
     kage = ds.attrs.get("kage", "kageX")
 
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), layout="constrained")
     Q1 = confidence.quantile(q=0.25, dim="time")
     median = confidence.median(dim="time")
     Q3 = confidence.quantile(q=0.75, dim="time")
@@ -197,7 +200,6 @@ def plot_confidence_quartiles_per_keypoint(
     ax.legend()
     ax.set_title(f"{kage}: confidence quartiles per keypoint")
 
-    plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=128)
 
@@ -243,6 +245,8 @@ def plot_confidence_hist_per_keypoint(
     else:
         title = "Confidence histograms per keypoint"
 
+    colors = plt.cm.get_cmap(cmap).colors
+
     if layout == "subplots":
         # Create subplots for each keypoint
         fig, axes = plt.subplots(
@@ -251,9 +255,9 @@ def plot_confidence_hist_per_keypoint(
             figsize=(n_keypoints * 1.5, n_keypoints * 0.75),
             sharey=True,
             sharex=True,
+            layout="constrained",
         )
 
-        colors = plt.cm.get_cmap(cmap).colors
         # Loop through each keypoint and plot its confidence histogram
         for i, kpt in enumerate(ds.keypoints.values):
             color_i = colors[i % len(colors)]
@@ -281,8 +285,7 @@ def plot_confidence_hist_per_keypoint(
         plt.suptitle(title)
 
     elif layout == "overlay":
-        fig, ax = plt.subplots()
-        colors = plt.cm.get_cmap(cmap).colors
+        fig, ax = plt.subplots(layout="constrained")
         for i, kpt in enumerate(ds.keypoints.values):
             ds.confidence.sel(keypoints=kpt).plot.hist(
                 bins=20,
@@ -299,8 +302,6 @@ def plot_confidence_hist_per_keypoint(
 
     else:
         raise ValueError("Invalid layout option. Choose 'subplots' or 'overlay'.")
-
-    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=128)
@@ -333,7 +334,11 @@ def plot_speed(
 
     """
     fig, (ax, ax_hist) = plt.subplots(
-        1, 2, figsize=(12, 4), gridspec_kw={"width_ratios": [4, 1]}
+        1,
+        2,
+        figsize=(12, 4),
+        gridspec_kw={"width_ratios": [4, 1]},
+        layout="constrained",
     )
 
     # Apply shading for dark periods if specified
@@ -371,7 +376,6 @@ def plot_speed(
     ax_hist.set_xscale("log")
     ax_hist.set_xlabel("log count")
 
-    plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=128)
 
@@ -410,7 +414,11 @@ def plot_trajectory(
     # Squeeze out any lingering singleton dimensions
     position = position.squeeze()
 
-    fig, ax = plt.subplots(figsize=(6, 6)) if ax is None else (ax.figure, ax)
+    fig, ax = (
+        plt.subplots(figsize=(6, 6), layout="constrained")
+        if ax is None
+        else (ax.figure, ax)
+    )
 
     # Merge default plotting args with user-provided kwargs
     for key, value in DEFAULT_SCATTER_ARGS.items():
@@ -438,10 +446,75 @@ def plot_trajectory(
     return fig, ax
 
 
+def _make_grouped_subplots(
+    da: xr.DataArray,
+    group_by: str,
+    figsize: tuple[float, float],
+    rows_per_individual: int = 1,
+) -> tuple[Figure, np.ndarray, np.ndarray]:
+    """Create a figure with one subplot per unique value of ``group_by``.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        DataArray with an ``individuals`` dimension and ``group_by`` as a
+        non-dimension coordinate.
+    group_by : str
+        Name of the coordinate to group by.
+    figsize : tuple[float, float]
+        Figure size as ``(width, height)``.
+    rows_per_individual : int
+        Height weight each individual contributes to its subplot. Use
+        ``n_days`` for actogram plots where each individual occupies
+        multiple rows. Default is ``1``.
+
+    Returns
+    -------
+    fig : Figure
+    axes : np.ndarray of Axes, shape ``(n_groups,)``
+    unique_groups : np.ndarray of unique group values
+    """
+    if group_by not in da.coords:
+        raise ValueError(f"'{group_by}' is not a coordinate of the DataArray.")
+    unique_groups = np.unique(da.coords[group_by].values)
+    height_ratios = [
+        int((da.coords[group_by] == g).sum()) * rows_per_individual
+        for g in unique_groups
+    ]
+    fig, axes = plt.subplots(
+        nrows=len(unique_groups),
+        figsize=figsize,
+        sharex=True,
+        layout="constrained",
+        gridspec_kw={"height_ratios": height_ratios},
+    )
+    return fig, np.atleast_1d(axes), unique_groups
+
+
+def _cbar_label(da: xr.DataArray) -> str:
+    """Return a colorbar label from a DataArray's attributes or name."""
+    return da.attrs.get("long_name", da.name or "")
+
+
+def _finalize_grouped_xaxis(
+    axes: np.ndarray,
+    ticks,
+    labels: Sequence[str | int],
+    xlabel: str,
+) -> None:
+    """Hide x-tick labels on all but the bottom axes and set ticks/label."""
+    for ax in axes[:-1]:
+        plt.setp(ax.get_xticklabels(), visible=False)
+    axes[-1].set_xticks(ticks)
+    axes[-1].set_xticklabels(labels)
+    axes[-1].set_xlabel(xlabel)
+
+
 def plot_activity_heatmap(
     activity: xr.DataArray,
     save_path: Path | None = None,
     cmap: str = CMAP,
+    group_by: str | None = None,
 ) -> None:
     """Plot heatmap of activity over a week.
 
@@ -457,25 +530,18 @@ def plot_activity_heatmap(
     cmap : str
         The colormap to use for the heatmap. Any of the qualitative matplotlib
         colormaps can be used.
+    group_by : str | None
+        Name of a non-dimension coordinate of the 'individuals' dimension.
+        If provided, one subplot per unique group value is created, each
+        showing only the individuals belonging to that group. Subplot heights
+        are proportional to group size. Default is None.
     """
     # If there is a singleton keypoint dimension, squeeze it out
     if "keypoints" in activity.dims and activity.sizes["keypoints"] == 1:
         activity = activity.squeeze("keypoints")
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    activity_vmax = float(activity.quantile(0.99))  # use 99th percentile
 
-    activity_vmax = activity.quantile(0.99).item()  # use 99th percentile
-
-    activity.plot.pcolormesh(
-        x="time",
-        y="individuals",
-        ax=ax,
-        cmap=cmap,
-        vmin=0,
-        vmax=activity_vmax,
-    )
-
-    # Replace xtick labels with number of days since start
     week_start = activity.time.min().item()
     week_end = activity.time.max().item()
     daily_ticks = pd.date_range(start=week_start, end=week_end, freq="D")
@@ -483,13 +549,37 @@ def plot_activity_heatmap(
         int((pd.Timestamp(tick) - pd.Timestamp(week_start)).days)
         for tick in daily_ticks
     ]
-    ax.set_xticks(daily_ticks)
-    ax.set_xticklabels(daily_tick_labels)
-    ax.set_xlabel("Days")
-    ax.set_ylim(-0.5, len(activity.individuals) - 0.5)
+
+    pcolormesh_kwargs = dict(
+        x="time", y="individuals", cmap=cmap, vmin=0, vmax=activity_vmax
+    )
+
+    if group_by is not None:
+        fig, axes, unique_groups = _make_grouped_subplots(
+            activity, group_by, figsize=(12, 8)
+        )
+        pm = None
+        for ax, group in zip(axes, unique_groups, strict=True):
+            mask = activity.coords[group_by].values == group
+            group_da = activity.isel(individuals=mask)
+            pm = group_da.plot.pcolormesh(
+                **pcolormesh_kwargs, ax=ax, add_colorbar=False
+            )
+            ax.set_title(f"{group_by} = {group}")
+            ax.set_ylim(-0.5, len(group_da.individuals) - 0.5)
+
+        _finalize_grouped_xaxis(axes, daily_ticks, daily_tick_labels, "Days")
+        fig.colorbar(pm, ax=axes.tolist(), label=_cbar_label(activity))
+
+    else:
+        fig, ax = plt.subplots(figsize=(12, 8), layout="constrained")
+        activity.plot.pcolormesh(**pcolormesh_kwargs, ax=ax)
+        ax.set_xticks(daily_ticks)
+        ax.set_xticklabels(daily_tick_labels)
+        ax.set_xlabel("Days")
+        ax.set_ylim(-0.5, len(activity.individuals) - 0.5)
 
     plt.suptitle("Activity heatmap")
-    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=128)
@@ -546,6 +636,14 @@ def _stack_actogram(actogram: xr.DataArray) -> xr.DataArray:
     )
 
 
+def _set_cohort_yticks(ax: Axes, individuals: np.ndarray, n_days: int) -> None:
+    """Set y-ticks at individual start rows for a stacked actogram axes."""
+    tick_positions = [i * n_days for i in range(len(individuals))]
+    ax.set_yticks(tick_positions)
+    ax.set_yticklabels(individuals)
+    ax.set_ylabel("")
+
+
 def plot_actogram(
     actogram: xr.DataArray,
     dark_period: tuple[str, str],
@@ -580,7 +678,7 @@ def plot_actogram(
     if vmax is None:
         vmax = float(actogram.quantile(0.99))
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(10, 4), layout="constrained")
 
     actogram.plot.pcolormesh(
         x="minutes",
@@ -590,19 +688,17 @@ def plot_actogram(
         cmap=cmap,
         vmin=0,
         vmax=vmax,
-        cbar_kwargs={"fraction": 0.03, "pad": 0.02},
+        cbar_kwargs={"fraction": 0.03, "pad": 0.02, "label": _cbar_label(actogram)},
     )
 
     _add_dark_period_bar(ax, dark_period)
 
-    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
-    ax.set_xticks(hour_ticks)
-    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
+    ax.set_xticks(_HOUR_TICKS)
+    ax.set_xticklabels(_HOUR_LABELS)
     ax.set_xlabel("Time of day")
     ax.set_ylabel("Day")
     ax.set_title(title)
 
-    plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=128)
 
@@ -615,6 +711,7 @@ def plot_actogram_cohort(
     save_path: Path | None = None,
     cmap: str = "viridis",
     vmax: float | None = None,
+    group_by: str | None = None,
 ) -> Figure:
     """Plot a stacked actogram for the full cohort.
 
@@ -634,6 +731,11 @@ def plot_actogram_cohort(
     vmax : float | None
         Maximum value for the color scale. If ``None``, the 99th percentile
         of the data is used.
+    group_by : str | None
+        Name of a non-dimension coordinate of the 'individuals' dimension.
+        If provided, one subplot per unique group value is created, each
+        showing the stacked actogram for individuals in that group. Subplot
+        heights are proportional to group size × days. Default is None.
 
     Returns
     -------
@@ -643,36 +745,60 @@ def plot_actogram_cohort(
     if vmax is None:
         vmax = float(actogram.quantile(0.99))
 
-    actogram_tall = _stack_actogram(actogram)
     n_days = actogram.sizes["day"]
-    individuals = actogram.individuals.values
-
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    actogram_tall.plot.pcolormesh(
+    pcolormesh_kwargs = dict(
         x="minutes",
         y="kage_day_id",
         yincrease=False,
         cmap=cmap,
         vmin=0,
         vmax=vmax,
-        ax=ax,
-        cbar_kwargs={"fraction": 0.03, "pad": 0.02},
     )
-    ax.set_title("Full cohort actogram")
 
-    tick_positions = [i * n_days for i in range(len(individuals))]
-    ax.set_yticks(tick_positions)
-    ax.set_yticklabels(individuals)
+    if group_by is not None:
+        fig, axes, unique_groups = _make_grouped_subplots(
+            actogram,
+            group_by,
+            figsize=(12, 12),
+            rows_per_individual=n_days,
+        )
+        pm = None
+        for ax, group in zip(axes, unique_groups, strict=True):
+            mask = actogram.coords[group_by].values == group
+            group_actogram = actogram.isel(individuals=mask)
+            group_tall = _stack_actogram(group_actogram)
+            group_inds = group_actogram.individuals.values
 
-    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
-    ax.set_xticks(hour_ticks)
-    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
-    ax.set_xlabel("Time of day")
+            pm = group_tall.plot.pcolormesh(
+                **pcolormesh_kwargs, ax=ax, add_colorbar=False
+            )
+            ax.set_title(f"{group_by} = {group}")
+            _set_cohort_yticks(ax, group_inds, n_days)
 
-    _add_dark_period_bar(ax, dark_period, bar_height=0.02)
+        for ax in axes:
+            _add_dark_period_bar(ax, dark_period, bar_height=0.02)
+        _finalize_grouped_xaxis(axes, _HOUR_TICKS, _HOUR_LABELS, "Time of day")
+        fig.colorbar(
+            pm, ax=axes.tolist(), fraction=0.03, pad=0.02, label=_cbar_label(actogram)
+        )
 
-    plt.tight_layout()
+    else:
+        actogram_tall = _stack_actogram(actogram)
+        individuals = actogram.individuals.values
+
+        fig, ax = plt.subplots(figsize=(12, 12), layout="constrained")
+        actogram_tall.plot.pcolormesh(
+            **pcolormesh_kwargs,
+            ax=ax,
+            cbar_kwargs={"fraction": 0.03, "pad": 0.02},
+        )
+        ax.set_title("Full cohort actogram")
+        _set_cohort_yticks(ax, individuals, n_days)
+        ax.set_xticks(_HOUR_TICKS)
+        ax.set_xticklabels(_HOUR_LABELS)
+        ax.set_xlabel("Time of day")
+        _add_dark_period_bar(ax, dark_period, bar_height=0.02)
+
     if save_path:
         plt.savefig(save_path, dpi=128)
 
@@ -683,6 +809,8 @@ def plot_mean_daily_activity_profile(
     actogram: xr.DataArray,
     dark_period: tuple[str, str],
     save_path: Path | None = None,
+    group_by: str | None = None,
+    cmap: str = CMAP,
 ) -> Figure:
     """Plot the average daily activity profile across individuals.
 
@@ -698,39 +826,80 @@ def plot_mean_daily_activity_profile(
         Start and end of the dark period as ``('HH:MM', 'HH:MM')``.
     save_path:
         Optional path to save the figure.
+    group_by : str | None
+        Name of a non-dimension coordinate of the 'individuals' dimension.
+        If provided, traces are coloured by group with a per-group mean
+        overlaid. If None, all individuals are treated as one group labelled
+        ``"Cohort"``.
+    cmap : str
+        Qualitative colormap used to assign colours to groups. Default is
+        ``CMAP``.
 
     Returns
     -------
     Figure
         The matplotlib figure.
     """
+    if group_by is not None and group_by not in actogram.coords:
+        raise ValueError(f"'{group_by}' is not a coordinate of the DataArray.")
+
     mean_daily_profile = actogram.mean(dim="day")
+    colors = plt.cm.get_cmap(cmap).colors
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    if group_by is not None:
+        unique_groups = np.unique(actogram.coords[group_by].values)
+        group_labels = actogram.coords[group_by].values
+    else:
+        unique_groups = np.array(["Cohort"])
+        group_labels = np.full(len(actogram.individuals), "Cohort")
 
-    for kage in mean_daily_profile.individuals.values:
-        mean_daily_profile.sel(individuals=kage).plot.line(
-            x="minutes", ax=ax, color="steelblue", alpha=0.3, lw=1, add_legend=False
+    group_color = {g: colors[i % len(colors)] for i, g in enumerate(unique_groups)}
+
+    fig, ax = plt.subplots(figsize=(10, 4), layout="constrained")
+
+    for g in unique_groups:
+        mask = group_labels == g
+        group_profile = mean_daily_profile.isel(individuals=mask)
+        group_mean = group_profile.mean(dim="individuals")
+        group_std = group_profile.std(dim="individuals")
+        group_mean.plot.line(
+            x="minutes",
+            ax=ax,
+            color=group_color[g],
+            lw=2,
+            label=f"{g} (n={int(mask.sum())})",
+        )
+        ax.fill_between(
+            group_mean.minutes.values,
+            group_mean - group_std,
+            group_mean + group_std,
+            color=group_color[g],
+            alpha=0.2,
         )
 
-    mean_daily_profile.mean(dim="individuals").plot.line(
-        x="minutes", ax=ax, color="blue", lw=2, label="Cohort mean"
-    )
+    for time_str in dark_period:
+        t = hhmm_to_minutes(time_str)
+        ax.axvline(t, color="0.5", ls="--", lw=1)
+        ax.text(
+            t,
+            0.98,
+            time_str,
+            transform=ax.get_xaxis_transform(),
+            ha="right",
+            va="top",
+            fontsize="small",
+            rotation=90,
+            color="0.5",
+        )
 
-    dark_start = hhmm_to_minutes(dark_period[0])
-    dark_end = hhmm_to_minutes(dark_period[1])
-    ax.axvspan(dark_start, dark_end, color="0.1", alpha=0.15, label="Dark period")
-
-    hour_ticks = np.arange(0, 24 * 60 + 1, 4 * 60)
-    ax.set_xticks(hour_ticks)
-    ax.set_xticklabels([f"{int(m // 60):02d}:00" for m in hour_ticks])
+    ax.set_xticks(_HOUR_TICKS)
+    ax.set_xticklabels(_HOUR_LABELS)
     ax.set_xlabel("Time of day")
     ax.set_ylabel(f"Activity ({mean_daily_profile.attrs.get('units', 'cm/bin')})")
     ax.set_title("Average daily activity profile")
     ax.set_xlim(0, 24 * 60)
-    ax.legend()
+    ax.legend(title="mean ± SD")
 
-    plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=128)
 
@@ -772,7 +941,9 @@ def plot_trajectory_and_occupancy(
     trajectory_kwargs = trajectory_kwargs or {}
     occupancy_kwargs = occupancy_kwargs or {}
 
-    fig, (ax_traj, ax_occ) = plt.subplots(ncols=2, figsize=(12, 4))
+    fig, (ax_traj, ax_occ) = plt.subplots(
+        ncols=2, figsize=(12, 4), layout="constrained"
+    )
 
     if bg_image is not None:
         height, width = bg_image.shape[:2]
@@ -793,8 +964,6 @@ def plot_trajectory_and_occupancy(
 
     if title:
         fig.suptitle(title)
-
-    plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=128)
